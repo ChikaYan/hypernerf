@@ -228,7 +228,7 @@ def train_step(model: models.NerfModel,
         losses.append(loss)
       rgb_loss = jnp.sum(jnp.asarray(losses), axis=0).mean()
     else:
-      rgb_loss = ((model_out['rgb'][..., :3] - batch['rgb'][..., :3])**2).mean()
+      rgb_loss = ((model_out['rgb'][..., :3] - batch['rgb'][..., :3])**2).mean() # computer average pixel L2 loss
     stats = {
         'loss/rgb': rgb_loss,
     }
@@ -256,11 +256,11 @@ def train_step(model: models.NerfModel,
       loss += scalar_params.elastic_loss_weight * elastic_loss
 
     if use_warp_reg_loss:
-      weights = lax.stop_gradient(model_out['weights'])
-      depth_indices = model_utils.compute_depth_index(weights)
+      weights = lax.stop_gradient(model_out['weights']) # returns the input but stops the gradient
+      depth_indices = model_utils.compute_depth_index(weights) # index of samples with median depth?
       warp_mag = ((model_out['points']
                    - model_out['warped_points'][..., :3]) ** 2).sum(axis=-1)
-      warp_reg_residual = jnp.take_along_axis(
+      warp_reg_residual = jnp.take_along_axis( # the magnitude of deformation of the point that has median depth on the ray
           warp_mag, depth_indices[..., None], axis=-1)
       warp_reg_loss = utils.general_loss_with_squared_residual(
           warp_reg_residual,
@@ -271,9 +271,10 @@ def train_step(model: models.NerfModel,
       loss += scalar_params.warp_reg_loss_weight * warp_reg_loss
 
     if use_hyper_reg_loss:
+      # apparently they have tried using a reguarlization on non-linear slice, but in the end they didn't use it
       weights = lax.stop_gradient(model_out['weights'])
       hyper_points = model_out['warped_points'][..., 3:]
-      hyper_reg_residual = (hyper_points ** 2).sum(axis=-1)
+      hyper_reg_residual = (hyper_points ** 2).sum(axis=-1) # residual but directly on the hyper_points?
       hyper_reg_loss = utils.general_loss_with_squared_residual(
           hyper_reg_residual, alpha=0.0, scale=0.05)
       assert weights.shape == hyper_reg_loss.shape
@@ -301,7 +302,7 @@ def train_step(model: models.NerfModel,
                       batch,
                       extra_params=state.extra_params,
                       return_points=(use_warp_reg_loss or use_hyper_reg_loss),
-                      return_weights=(use_warp_reg_loss or use_elastic_loss),
+                      return_weights=(use_warp_reg_loss or use_elastic_loss), # whether return density weights
                       return_warp_jacobian=use_elastic_loss,
                       rngs={
                           'fine': fine_key,
@@ -340,7 +341,7 @@ def train_step(model: models.NerfModel,
         state=zero_adam_param_states(optimizer.state, 'model/hyper_sheet_mlp'))
 
   grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-  (_, (stats, model_out)), grad = grad_fn(optimizer.target)
+  (_, (stats, model_out)), grad = grad_fn(optimizer.target) # optimizer.target is model params
   grad = jax.lax.pmean(grad, axis_name='batch')
   if grad_max_val > 0.0 or grad_max_norm > 0.0:
     grad = utils.clip_gradients(grad, grad_max_val, grad_max_norm)

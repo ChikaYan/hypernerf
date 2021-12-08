@@ -77,7 +77,7 @@ class NerfModel(nn.Module):
     nerf_skips: which layers to add skip layers in the NeRF model.
     spatial_point_min_deg: min degree of positional encoding for positions.
     spatial_point_max_deg: max degree of positional encoding for positions.
-    hyper_point_min_deg: min degree of positional encoding for hyper points.
+    hyper_point_min_deg: min degree of positional encoding for hyper points. Hyper points are the ambient space coordinates!
     hyper_point_max_deg: max degree of positional encoding for hyper points.
     viewdir_min_deg: min degree of positional encoding for viewdirs.
     viewdir_max_deg: max degree of positional encoding for viewdirs.
@@ -278,7 +278,7 @@ class NerfModel(nn.Module):
       self.hyper_sheet_mlp = self.hyper_sheet_mlp_cls()
 
     if self.use_warp:
-      self.warp_field = self.warp_field_cls()
+      self.warp_field = self.warp_field_cls() # warp_field is a MLP
 
     norm_layer = modules.get_norm_layer(self.norm_type)
     nerf_mlps = {
@@ -383,7 +383,7 @@ class NerfModel(nn.Module):
     warp_jacobian = None
     if self.use_warp and use_warp:
       warp_fn = jax.vmap(jax.vmap(self.warp_field, in_axes=(0, 0, None, None)),
-                         in_axes=(0, 0, None, None))
+                         in_axes=(0, 0, None, None)) # double vmap needed, because the points and warp_embed are in shape (#batch, #point, value)
       warp_out = warp_fn(points,
                          warp_embed,
                          extra_params,
@@ -414,7 +414,7 @@ class NerfModel(nn.Module):
       hyper_points = jnp.broadcast_to(
           hyper_point_override[:, None, :],
           (*points.shape[:-1], hyper_point_override.shape[-1]))
-    elif self.hyper_slice_method == 'axis_aligned_plane':
+    elif self.hyper_slice_method == 'axis_aligned_plane': # no non-linear slice
       hyper_points = hyper_embed
     elif self.hyper_slice_method == 'bendy_sheet':
       hyper_points = self.hyper_sheet_mlp(
@@ -486,7 +486,7 @@ class NerfModel(nn.Module):
         warp_embed = metadata['encoded_warp']
       else:
         warp_embed = metadata[self.warp_embed_key]
-        warp_embed = self.warp_embed(warp_embed)
+        warp_embed = self.warp_embed(warp_embed) # embed each key (integer) to 8 digit vector
     else:
       warp_embed = None
 
@@ -495,7 +495,7 @@ class NerfModel(nn.Module):
       if metadata_encoded:
         hyper_embed = metadata['encoded_hyper']
       elif self.hyper_use_warp_embed:
-        hyper_embed = warp_embed
+        hyper_embed = warp_embed # hyper embed is just the warp embed
       else:
         hyper_embed = metadata[self.hyper_embed_key]
         hyper_embed = self.hyper_embed(hyper_embed)
@@ -504,7 +504,7 @@ class NerfModel(nn.Module):
 
     # Broadcast embeddings.
     if warp_embed is not None:
-      warp_embed = jnp.broadcast_to(
+      warp_embed = jnp.broadcast_to( # boardcast the embeddings to each point
           warp_embed[:, jnp.newaxis, :],
           shape=(*batch_shape, warp_embed.shape[-1]))
     if hyper_embed is not None:

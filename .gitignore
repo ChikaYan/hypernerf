@@ -70,3 +70,7 @@ docs/_build/
 # PyBuilder
 target/
 
+data/
+log/
+
+.vscode

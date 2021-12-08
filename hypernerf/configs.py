@@ -80,7 +80,7 @@ class TrainConfig:
   warp_alpha_schedule: Optional[ScheduleDef] = None
   # The schedule or the hyper sheet position encoding.
   hyper_alpha_schedule: Optional[ScheduleDef] = None
-  # The schedule or the hyper sheet position encoding.
+  # The schedule or the hyper sheet position encoding. -- what is hyper_sheet??
   hyper_sheet_alpha_schedule: Optional[ScheduleDef] = None
 
   # Whether to use the elastic regularization loss.
