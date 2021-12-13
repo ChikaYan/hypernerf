@@ -153,7 +153,7 @@ class NerfMLP(nn.Module):
                   hidden_init=jax.nn.initializers.glorot_uniform(),
                   output_init=jax.nn.initializers.glorot_uniform(),
                   output_channels=self.rgb_channels)
-    alpha_mlp = MLP(depth=self.alpha_branch_depth,
+    alpha_mlp = MLP(depth=self.alpha_branch_depth, # although depth is 0, it still goes thorugh a top "logit" layer
                     width=self.alpha_branch_width,
                     hidden_activation=self.activation,
                     hidden_norm=self.norm,
@@ -165,7 +165,7 @@ class NerfMLP(nn.Module):
       x = trunk_mlp(x)
 
     if (alpha_condition is not None) or (rgb_condition is not None):
-      bottleneck = dense(self.trunk_width, name='bottleneck')(x)
+      bottleneck = dense(self.trunk_width, name='bottleneck')(x) # an additional layer to produce bottleneck, if need extra condition on alpha or rgb
 
     if alpha_condition is not None:
       alpha_condition = broadcast_condition(alpha_condition)

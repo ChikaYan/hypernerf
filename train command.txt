@@ -1,2 +1,5 @@
 
-python train.py     --base_folder log     --gin_bindings="data_dir='./data/broom/'"     --gin_configs configs/test_local.gin
+python train.py     --base_folder log/decompose_test     --gin_bindings="data_dir='./data/broom/'"     --gin_configs configs/test_decompose.gin
+
+
+python eval.py     --base_folder log/decompose_test     --gin_bindings="data_dir='./data/broom/'"     --gin_configs configs/test_decompose.gin

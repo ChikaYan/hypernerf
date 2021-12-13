@@ -35,6 +35,8 @@ from jax.config import config
 import numpy as np
 import tensorflow as tf
 import tensorflow_hub as tf_hub
+import pdb
+
 
 from hypernerf import configs
 from hypernerf import datasets
@@ -54,6 +56,7 @@ flags.DEFINE_string('base_folder', None, 'where to store ckpts and logs')
 flags.mark_flag_as_required('base_folder')
 flags.DEFINE_multi_string('gin_bindings', None, 'Gin parameter bindings.')
 flags.DEFINE_multi_string('gin_configs', (), 'Gin config files.')
+flags.DEFINE_boolean('debug', False, 'Produces debugging output.')
 FLAGS = flags.FLAGS
 
 config.update('jax_log_compiles', True)
@@ -283,6 +286,17 @@ def main(argv):
   logging.info('*** Starting experiment')
   gin_configs = FLAGS.gin_configs
 
+
+  if FLAGS.debug:
+    print('Debug mode on! Jitting is disabled')
+    # config.update("jax_debug_nans", True)
+    config.update('jax_disable_jit', True)
+
+  # add simple fix for VS debugger:
+  if FLAGS.debug and FLAGS.gin_bindings[0][0]=='"':
+    FLAGS.gin_bindings = FLAGS.gin_bindings[0][1:-1]
+
+
   logging.info('*** Loading Gin configs from: %s', str(gin_configs))
   gin.parse_config_files_and_bindings(
       config_files=gin_configs,
@@ -336,7 +350,10 @@ def main(argv):
 
   logging.info('Creating datasource')
   # Dummy model for configuratin datasource.
-  dummy_model = models.NerfModel({}, 0, 0)
+  if train_config.use_decompose_nerf:
+    dummy_model = models.DecomposeNerfModel({}, 0, 0)
+  else:
+    dummy_model = models.NerfModel({}, 0, 0)
   datasource = exp_config.datasource_cls(
       image_scale=exp_config.image_scale,
       random_seed=exp_config.random_seed,
@@ -371,7 +388,8 @@ def main(argv):
 
   rng, key = random.split(rng)
   params = {}
-  model, params['model'] = models.construct_nerf(
+  construct_nerf_func = models.construct_nerf if not train_config.use_decompose_nerf else models.construct_decompose_nerf
+  model, params['model'] = construct_nerf_func(
       key,
       batch_size=eval_config.chunk,
       embeddings_dict=datasource.embeddings_dict,

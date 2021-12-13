@@ -132,6 +132,9 @@ class TrainConfig:
   curvature_loss_spacing: float = 0
   curvature_loss_weight_schedule: Optional[Any] = None
 
+  # Use decompose NeRF or not
+  use_decompose_nerf: bool = False
+
 
 @gin.configurable()
 @dataclasses.dataclass

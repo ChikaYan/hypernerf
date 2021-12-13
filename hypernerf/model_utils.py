@@ -271,6 +271,7 @@ def compute_depth_map(weights, z_vals, depth_threshold=0.5):
 
 def noise_regularize(key, raw, noise_std, use_stratified_sampling):
   """Regularize the density prediction by adding gaussian noise.
+     Beware that this assumes position of density predictions 
 
   Args:
     key: jnp.ndarray(float32), [2,], random number generator.
@@ -344,9 +345,9 @@ def posenc(x, min_deg, max_deg, use_identity=False, alpha=None):
   batch_shape = x.shape[:-1]
   scales = 2.0 ** jnp.arange(min_deg, max_deg)
   # (*, F, C).
-  xb = x[..., None, :] * scales[:, None]
+  xb = x[..., None, :] * scales[:, None] # shape [#batch, 1, d] * shape [c, 1], boardcasted along x[..., None, :]'s axis 1
   # (*, F, 2, C).
-  four_feat = jnp.sin(jnp.stack([xb, xb + 0.5 * jnp.pi], axis=-2))
+  four_feat = jnp.sin(jnp.stack([xb, xb + 0.5 * jnp.pi], axis=-2)) # by using 1/2 pi offset and stack, creates sin and cos terms. Shape [#batch, c, 2, d]
 
   if alpha is not None:
     window = posenc_window(min_deg, max_deg, alpha)
