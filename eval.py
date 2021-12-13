@@ -342,7 +342,7 @@ def main(argv):
   logging.info('Found %d total devices: %s.', jax.device_count(),
                str(jax.devices()))
 
-  rng = random.PRNGKey(20200823)
+  rng = random.PRNGKey(20200823) # rng key fixed, might abstract that to config
 
   devices_to_use = jax.local_devices()
   n_devices = len(
@@ -367,7 +367,7 @@ def main(argv):
 
   # Get training IDs to evaluate.
   train_eval_ids = utils.strided_subset(
-      datasource.train_ids, eval_config.num_train_eval)
+      datasource.train_ids, eval_config.num_train_eval) # returns eval_config.num_train_eval+1 evenly spaced samples
   train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
   val_eval_ids = utils.strided_subset(
       datasource.val_ids, eval_config.num_val_eval)
@@ -415,13 +415,22 @@ def main(argv):
                       mutable=False)
     return jax.lax.all_gather(out, axis_name='batch')
 
-  pmodel_fn = jax.pmap(
-      # Note rng_keys are useless in eval mode since there's no randomness.
-      _model_fn,
-      in_axes=(0, 0, 0, 0, 0),  # Only distribute the data input.
-      devices=devices_to_use,
-      axis_name='batch',
-  )
+  if FLAGS.debug:
+    # vmap version for debugging
+    pmodel_fn = jax.vmap(
+        # Note rng_keys are useless in eval mode since there's no randomness.
+        _model_fn,
+        in_axes=(0, 0, 0, 0, 0),  # Only distribute the data input.
+        axis_name='batch',
+    )
+  else:
+    pmodel_fn = jax.pmap(
+        # Note rng_keys are useless in eval mode since there's no randomness.
+        _model_fn,
+        in_axes=(0, 0, 0, 0, 0),  # Only distribute the data input.
+        devices=devices_to_use,
+        axis_name='batch',
+    )
 
   render_fn = functools.partial(evaluation.render_image,
                                 model_fn=pmodel_fn,

@@ -313,12 +313,11 @@ def main(argv):
 
   if FLAGS.debug:
     # vmap version for debugging
-    ptrain_step = jax.vmap( # jax parallel map
+    ptrain_step = jax.vmap(
         train_step,
-        axis_name='batch', # assigns a hashable name to the axis, which can be later referred to by other functions
+        axis_name='batch',
         # rng_key, state, batch, scalar_params.
-        in_axes=(0, 0, 0, None), # in_axes is used to align and pad the inputs to match dimensions
-        # Treat use_elastic_loss as compile-time static.
+        in_axes=(0, 0, 0, None)
     )
   else:
     ptrain_step = jax.pmap( # jax parallel map
@@ -363,9 +362,6 @@ def main(argv):
                           warp_alpha=warp_alpha,
                           hyper_alpha=hyper_alpha,
                           hyper_sheet_alpha=hyper_sheet_alpha)
-
-    # if step == 411 or step == 438:
-    # pdb.set_trace()
 
     with time_tracker.record_time('train_step'):
       state, stats, keys, model_out = ptrain_step(

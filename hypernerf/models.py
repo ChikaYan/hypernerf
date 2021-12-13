@@ -1130,6 +1130,9 @@ class DecomposeNerfModel(NerfModel):
       functools.partial(modules.GLOEmbed, num_dims=8))
   warp_embed_key: str = 'warp'
 
+  # Evaluation render configs
+  render_decompose: str = 'both'
+
   @property
   def num_nerf_embeds(self):
     return max(self.embeddings_dict[self.nerf_embed_key]) + 1
@@ -1511,8 +1514,6 @@ class DecomposeNerfModel(NerfModel):
       out['warp_jacobian'] = warp_jacobian
     out['warped_points'] = warped_points
 
-    # import pdb; pdb.set_trace()
-
     # query static nerf
     s_rgb, s_sigma = self.static_nerf.query_template(
         level,
@@ -1522,10 +1523,25 @@ class DecomposeNerfModel(NerfModel):
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
 
-    # combine static and dynamic nerf outputs
+    if self.render_decompose == 'both':
+      # combine static and dynamic nerf outputs
+      rgb = rgb * blending_w[...,None] + s_rgb * (jnp.ones_like(blending_w[...,None]) - blending_w[...,None])
+      sigma = sigma * blending_w + s_sigma * (jnp.ones_like(blending_w) - blending_w)
+    elif self.render_decompose == 'dynamic':
+      # render dynamic component only for evaluation
+      rgb = rgb * blending_w[...,None] + jnp.zeros_like(s_rgb) * (jnp.ones_like(blending_w[...,None]) - blending_w[...,None])
+      sigma = sigma * blending_w + jnp.zeros_like(s_sigma) * (jnp.ones_like(blending_w) - blending_w)
+    elif self.render_decompose == 'static':
+      # render static component only for evaluation
+      rgb = jnp.zeros_like(rgb) * blending_w[...,None] + s_rgb * (jnp.ones_like(blending_w[...,None]) - blending_w[...,None])
+      sigma = jnp.zeros_like(sigma) * blending_w + s_sigma * (jnp.ones_like(blending_w) - blending_w)
+    elif self.render_decompose == 'blend_w':
+      # render blending weights
+      rgb = jnp.ones_like(rgb) * blending_w[...,None]
+      sigma = sigma * blending_w + s_sigma * (jnp.ones_like(blending_w) - blending_w)
+    else:
+      raise NotImplemented
 
-    rgb = rgb * blending_w[...,None] + s_rgb * (jnp.ones_like(blending_w[...,None]) - blending_w[...,None])
-    sigma = sigma * blending_w + s_sigma * (jnp.ones_like(blending_w) - blending_w)
 
     out.update(model_utils.volumetric_rendering(
         rgb,
