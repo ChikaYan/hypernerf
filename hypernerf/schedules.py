@@ -50,7 +50,7 @@ def from_config(schedule):
 class Schedule(abc.ABC):
   """An interface for generic schedules.."""
 
-  @abc.abstractmethod
+  @abc.abstractmethod # defines an abstract method that must be implemented by child class
   def get(self, step):
     """Get the value for the given step."""
     raise NotImplementedError

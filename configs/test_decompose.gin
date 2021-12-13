@@ -1,0 +1,36 @@
+include 'configs/test_local.gin'
+
+TrainConfig.use_decompose_nerf = True
+
+
+StaticNerfModel.num_coarse_samples = 64
+StaticNerfModel.num_fine_samples = 64
+StaticNerfModel.use_viewdirs = True
+StaticNerfModel.use_stratified_sampling = True
+
+StaticNerfModel.norm_type = 'none'
+StaticNerfModel.activation = @jax.nn.relu
+
+
+DecomposeNerfModel.num_coarse_samples = 64
+DecomposeNerfModel.num_fine_samples = 64
+DecomposeNerfModel.use_viewdirs = True
+DecomposeNerfModel.use_stratified_sampling = True
+
+DecomposeNerfModel.norm_type = 'none'
+DecomposeNerfModel.activation = @jax.nn.relu
+
+DecomposeNerfModel.hyper_point_min_deg = %hyper_point_min_deg
+DecomposeNerfModel.hyper_point_max_deg = %hyper_point_max_deg
+
+
+DecomposeNerfModel.hyper_slice_method = 'bendy_sheet'
+DecomposeNerfModel.hyper_sheet_mlp_cls = @HyperSheetMLP
+DecomposeNerfModel.hyper_use_warp_embed = True
+DecomposeNerfModel.use_warp = True
+
+
+TrainConfig.print_every = 100
+TrainConfig.log_every = 100
+TrainConfig.histogram_every = 100
+TrainConfig.save_every = 1000

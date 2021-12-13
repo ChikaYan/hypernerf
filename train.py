@@ -31,6 +31,9 @@ from jax import numpy as jnp
 from jax import random
 import numpy as np
 import tensorflow as tf
+import pdb
+from jax.config import config as jax_config
+
 
 from hypernerf import configs
 from hypernerf import datasets
@@ -48,6 +51,7 @@ flags.DEFINE_string('base_folder', None, 'where to store ckpts and logs')
 flags.mark_flag_as_required('base_folder')
 flags.DEFINE_multi_string('gin_bindings', None, 'Gin parameter bindings.')
 flags.DEFINE_multi_string('gin_configs', (), 'Gin config files.')
+flags.DEFINE_boolean('debug', False, 'Produces debugging output.')
 FLAGS = flags.FLAGS
 
 
@@ -137,15 +141,34 @@ def main(argv):
   gin_configs = FLAGS.gin_configs
 
   logging.info('*** Loading Gin configs from: %s', str(gin_configs))
+
+  if FLAGS.debug:
+    print('Debug mode on! Jitting is disabled')
+    jax_config.update("jax_debug_nans", True)
+    jax_config.update('jax_disable_jit', True)
+
+  # add simple fix for VS debugger:
+  if FLAGS.debug and FLAGS.gin_bindings[0][0]=='"':
+    FLAGS.gin_bindings = FLAGS.gin_bindings[0][1:-1]
+
   gin.parse_config_files_and_bindings(
       config_files=gin_configs,
-      bindings=FLAGS.gin_bindings,
+      bindings=FLAGS.gin_bindings, # additional configs
       skip_unknown=True)
 
   # Load configurations.
   exp_config = configs.ExperimentConfig()
   train_config = configs.TrainConfig()
-  dummy_model = models.NerfModel({}, 0, 0)
+
+  # add a few more steps to run for debug
+  if FLAGS.debug:
+    train_config.max_steps += 100
+
+  if train_config.use_decompose_nerf:
+    dummy_model = models.DecomposeNerfModel({}, 0, 0)
+  else:
+    dummy_model = models.NerfModel({}, 0, 0) # (embeddings_dict, near, far). Dummpy model is used to get configurations from gin
+
 
   # Get directory information.
   exp_dir = gpath.GPath(FLAGS.base_folder)
@@ -200,7 +223,9 @@ def main(argv):
   logging.info('Initializing models.')
   rng, key = random.split(rng)
   params = {}
-  model, params['model'] = models.construct_nerf(
+
+  construct_nerf_func = models.construct_nerf if not train_config.use_decompose_nerf else models.construct_decompose_nerf
+  model, params['model'] = construct_nerf_func(
       key,
       batch_size=train_config.batch_size,
       embeddings_dict=datasource.embeddings_dict,
@@ -261,6 +286,7 @@ def main(argv):
       background_loss_weight=train_config.background_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
+  print(f'Loaded step {state.optimizer.state.step}')
   init_step = state.optimizer.state.step + 1
   state = jax_utils.replicate(state, devices=devices)
   del params
@@ -275,7 +301,7 @@ def main(argv):
     summary_writer.text('gin/train', textdata=gin.markdown(config_str), step=0)
 
   train_step = functools.partial(
-      training.train_step,
+      training.train_step, # rng_key, state, batch, scalar_params
       model,
       elastic_reduce_method=train_config.elastic_reduce_method,
       elastic_loss_type=train_config.elastic_loss_type,
@@ -284,15 +310,27 @@ def main(argv):
       use_warp_reg_loss=train_config.use_warp_reg_loss,
       use_hyper_reg_loss=train_config.use_hyper_reg_loss,
   )
-  ptrain_step = jax.pmap(
-      train_step,
-      axis_name='batch',
-      devices=devices,
-      # rng_key, state, batch, scalar_params.
-      in_axes=(0, 0, 0, None),
-      # Treat use_elastic_loss as compile-time static.
-      donate_argnums=(2,),  # Donate the 'batch' argument.
-  )
+
+  if FLAGS.debug:
+    # vmap version for debugging
+    ptrain_step = jax.vmap( # jax parallel map
+        train_step,
+        axis_name='batch', # assigns a hashable name to the axis, which can be later referred to by other functions
+        # rng_key, state, batch, scalar_params.
+        in_axes=(0, 0, 0, None), # in_axes is used to align and pad the inputs to match dimensions
+        # Treat use_elastic_loss as compile-time static.
+    )
+  else:
+    ptrain_step = jax.pmap( # jax parallel map
+        train_step,
+        axis_name='batch', # assigns a hashable name to the axis, which can be later referred to by other functions
+        devices=devices,
+        # rng_key, state, batch, scalar_params.
+        in_axes=(0, 0, 0, None), # in_axes is used to align and pad the inputs to match dimensions
+        # Treat use_elastic_loss as compile-time static.
+        donate_argnums=(2,),  # Donate the 'batch' argument -- arguments that are no longer needed after computation can be donated to reduce memory requirement
+    )
+
 
   if devices:
     n_local_devices = len(devices)
@@ -312,7 +350,7 @@ def main(argv):
     time_tracker.toc('data')
     # See: b/162398046.
     # pytype: disable=attribute-error
-    scalar_params = scalar_params.replace(
+    scalar_params = scalar_params.replace( # update the per-step params: lr and elastic loss
         learning_rate=learning_rate_sched(step),
         elastic_loss_weight=elastic_loss_weight_sched(step))
     # pytype: enable=attribute-error
@@ -325,6 +363,9 @@ def main(argv):
                           warp_alpha=warp_alpha,
                           hyper_alpha=hyper_alpha,
                           hyper_sheet_alpha=hyper_sheet_alpha)
+
+    # if step == 411 or step == 438:
+    # pdb.set_trace()
 
     with time_tracker.record_time('train_step'):
       state, stats, keys, model_out = ptrain_step(
@@ -345,7 +386,7 @@ def main(argv):
         logging.info('\tfine metrics: %s', fine_metrics_str)
 
     if step % train_config.save_every == 0 and jax.process_index() == 0:
-      training.save_checkpoint(checkpoint_dir, state, keep=2)
+      training.save_checkpoint(checkpoint_dir, state, keep=5)
 
     if step % train_config.log_every == 0 and jax.process_index() == 0:
       # Only log via process 0.
@@ -363,7 +404,7 @@ def main(argv):
     time_tracker.tic('data', 'total')
 
   if train_config.max_steps % train_config.save_every != 0:
-    training.save_checkpoint(checkpoint_dir, state, keep=2)
+    training.save_checkpoint(checkpoint_dir, state, keep=5)
 
 
 if __name__ == '__main__':
