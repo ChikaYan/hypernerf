@@ -1109,12 +1109,12 @@ class DecomposeNerfModel(NerfModel):
   sigma_activation: types.Activation = nn.softplus
 
   # NeRF metadata configs.
-  use_nerf_embed: bool = False
+  use_nerf_embed: bool = False # whether to use extra nerf embed (e.g., appearance code) or not
   nerf_embed_cls: Callable[..., nn.Module] = (
       functools.partial(modules.GLOEmbed, num_dims=8))
   nerf_embed_key: str = 'appearance'
-  use_alpha_condition: bool = False
-  use_rgb_condition: bool = False
+  use_alpha_condition: bool = False # use extra nerf embed as density condition or not (input with coordinate)
+  use_rgb_condition: bool = False # use extra nerf embed as rgb condition or not (input with view direction)
   hyper_slice_method: str = 'none'
   hyper_embed_cls: Callable[..., nn.Module] = (
       functools.partial(modules.GLOEmbed, num_dims=8))
@@ -1253,7 +1253,7 @@ class DecomposeNerfModel(NerfModel):
     if self.use_warp:
       self.warp_field = self.warp_field_cls() # warp_field is a MLP
 
-    self.static_nerf = self.static_nerf_cls(
+    self.static_nerf = self.static_nerf_cls( # TODO: remove cls as it's not needed 
             embeddings_dict=immutabledict.immutabledict(self.embeddings_dict),
             near=self.near,
             far=self.far
@@ -1323,9 +1323,9 @@ class DecomposeNerfModel(NerfModel):
 
   def query_template(self,
                      level, # coarse or fine
-                     points,
-                     viewdirs,
-                     metadata,
+                     points, 
+                     viewdirs, 
+                     metadata, 
                      extra_params,
                      metadata_encoded=False):
     """Queries the NeRF template."""
@@ -1350,7 +1350,7 @@ class DecomposeNerfModel(NerfModel):
 
     raw = self.nerf_mlps[level](points_feat, alpha_condition, rgb_condition)
     raw = model_utils.noise_regularize(
-        self.make_rng(level), raw, self.noise_std, self.use_stratified_sampling)
+        self.make_rng(level), raw, self.noise_std, self.use_stratified_sampling) 
 
     rgb = nn.sigmoid(raw['rgb'])
     sigma = self.sigma_activation(jnp.squeeze(raw['alpha'][...,:1], axis=-1))
@@ -1444,13 +1444,72 @@ class DecomposeNerfModel(NerfModel):
     warp_embed = self.warp_embed(warp_embed)
     return self.warp_field(points, warp_embed, extra_params)
 
+  def get_blendw(self,
+                level,
+                points,
+                viewdirs,
+                metadata,
+                extra_params,
+                use_warp=True,
+                metadata_encoded=False,
+                return_warp_jacobian=False):
+
+    batch_shape = points.shape[:-1]
+    # Create the warp embedding.
+    if use_warp:
+      if metadata_encoded:
+        warp_embed = metadata['encoded_warp']
+      else:
+        warp_embed = metadata
+        warp_embed = self.warp_embed(warp_embed) # embed each key (integer) to 8 digit vector
+    else:
+      warp_embed = None
+
+    # Create the hyper embedding.
+    if self.has_hyper_embed:
+      if metadata_encoded:
+        hyper_embed = metadata['encoded_hyper']
+      elif self.hyper_use_warp_embed:
+        hyper_embed = warp_embed # hyper embed is just the warp embed
+      else:
+        hyper_embed = metadata[self.hyper_embed_key]
+        hyper_embed = self.hyper_embed(hyper_embed)
+    else:
+      hyper_embed = None
+
+    # Broadcast embeddings.
+    if warp_embed is not None:
+      warp_embed = jnp.broadcast_to( # boardcast the embeddings to each point
+          warp_embed[:, jnp.newaxis, :],
+          shape=(*batch_shape, warp_embed.shape[-1]))
+    if hyper_embed is not None:
+      hyper_embed = jnp.broadcast_to(
+          hyper_embed[:, jnp.newaxis, :],
+          shape=(*batch_shape, hyper_embed.shape[-1]))
+
+    # Map input points to warped spatial and hyper points.
+    warped_points, _ = self.map_points(
+        points, warp_embed, hyper_embed, extra_params, use_warp=use_warp,
+        return_warp_jacobian=return_warp_jacobian) # check if removing overwrite is ok
+
+    _, _, blending_w = self.query_template(
+        level,
+        warped_points,
+        viewdirs,
+        metadata,
+        extra_params=extra_params,
+        metadata_encoded=metadata_encoded)
+
+    return blending_w
+
+
   def render_samples(self,
                      level,
-                     points,
+                     points, 
                      z_vals,
                      directions,
-                     viewdirs,
-                     metadata,
+                     viewdirs, 
+                     metadata, 
                      extra_params,
                      use_warp=True,
                      metadata_encoded=False,

@@ -31,6 +31,8 @@ from hypernerf import model_utils
 from hypernerf import models
 from hypernerf import utils
 
+import pdb
+
 
 @struct.dataclass
 class ScalarParams:
@@ -41,6 +43,7 @@ class ScalarParams:
   warp_reg_loss_alpha: float = -2.0
   warp_reg_loss_scale: float = 0.001
   background_loss_weight: float = 0.0
+  bg_decompose_loss_weight: float = 0.0
   background_noise_std: float = 0.001
   hyper_reg_loss_weight: float = 0.0
 
@@ -148,16 +151,57 @@ def compute_elastic_loss(jacobian, eps=1e-6, loss_type='log_svals'):
 def compute_background_loss(model, state, params, key, points, noise_std,
                             alpha=-2, scale=0.001):
   """Compute the background regularization loss."""
-  metadata = random.choice(key, model.warp_embeds, shape=(points.shape[0], 1))
+  metadata = random.choice(key, model.warp_embeds, shape=(points.shape[0], 1)) # for each of the point, choose a corresponding image
   point_noise = noise_std * random.normal(key, points.shape)
   points = points + point_noise
-  warp_fn = functools.partial(model.apply, method=model.apply_warp)
+  warp_fn = functools.partial(model.apply, method=model.apply_warp) # get warping on background points. method model.apply_warp is called
   warp_fn = jax.vmap(warp_fn, in_axes=(None, 0, 0, None))
   warp_out = warp_fn({'params': params}, points, metadata, state.extra_params)
   warped_points = warp_out['warped_points'][..., :3]
   sq_residual = jnp.sum((warped_points - points)**2, axis=-1)
   loss = utils.general_loss_with_squared_residual(
       sq_residual, alpha=alpha, scale=scale)
+  return loss
+
+@functools.partial(jax.jit, static_argnums=0)
+def compute_bg_decompose_loss(model, state, params, key, coarse_key, fine_key, points, noise_std,
+                            alpha=-2, scale=0.001):
+  """
+  Compute the background decompose loss that encourage background points to only be included by static components
+  Simple use the value of blending weight on background points as loss (blending weight should be 0)
+  """
+  metadata = random.choice(key, model.warp_embeds, shape=(points.shape[0], 1)) # for each of the point, choose a corresponding image
+  point_noise = noise_std * random.normal(key, points.shape)
+  points = points + point_noise
+
+  view_dirs = jnp.ones_like(points) # place holder view dirs, as blending weight only depends on coordiante 
+
+  blendw_coarse = model.apply({'params': params}, 
+                                    'coarse', 
+                                    points[:,None,...], 
+                                    view_dirs, metadata, 
+                                    state.extra_params, 
+                                    method=model.get_blendw,
+                                    rngs={
+                                      'fine': fine_key,
+                                      'coarse': coarse_key
+                                    })
+  blendw_fine = model.apply({'params': params}, 
+                                    'fine', 
+                                    points[:,None,...], 
+                                    view_dirs, 
+                                    metadata, 
+                                    state.extra_params, 
+                                    method=model.get_blendw,
+                                    rngs={
+                                      'fine': fine_key,
+                                      'coarse': coarse_key
+                                    })
+
+  residual = jnp.sum(blendw_coarse, axis=-1) + jnp.sum(blendw_fine, axis=-1)
+
+  loss = utils.general_loss_with_squared_residual(
+      residual, alpha=alpha, scale=scale)
   return loss
 
 
@@ -171,7 +215,8 @@ def compute_background_loss(model, state, params, key, points, noise_std,
                                     'elastic_loss_type',
                                     'use_background_loss',
                                     'use_warp_reg_loss',
-                                    'use_hyper_reg_loss'))
+                                    'use_hyper_reg_loss',
+                                    'use_bg_decompose_loss'))
 def train_step(model: models.NerfModel,
                rng_key: Callable[[int], jnp.ndarray],
                state: model_utils.TrainState,
@@ -184,6 +229,7 @@ def train_step(model: models.NerfModel,
                elastic_reduce_method: str = 'median',
                elastic_loss_type: str = 'log_svals',
                use_background_loss: bool = False,
+               use_bg_decompose_loss: bool = False,
                use_warp_reg_loss: bool = False,
                use_hyper_reg_loss: bool = False):
   """One optimization step.
@@ -332,6 +378,23 @@ def train_step(model: models.NerfModel,
       losses['background'] = (
           scalar_params.background_loss_weight * background_loss)
       stats['background_loss'] = background_loss
+      if use_bg_decompose_loss:
+        # model used must be DecomposeNerf. 
+        if not isinstance(model,models.DecomposeNerfModel):
+          raise NotImplemented
+        bg_decompose_loss = compute_bg_decompose_loss(
+          model,
+          state=state,
+          params=params['model'],
+          key=reg_key,
+          coarse_key=coarse_key,
+          fine_key=fine_key,
+          points=batch['background_points'],
+          noise_std=scalar_params.background_noise_std)
+        bg_decompose_loss = bg_decompose_loss.mean()
+        losses['bg_decompose'] = (
+          scalar_params.bg_decompose_loss_weight * bg_decompose_loss)
+        stats['bg_decompose_loss'] = bg_decompose_loss
 
     return sum(losses.values()), (stats, ret)
 

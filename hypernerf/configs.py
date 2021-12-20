@@ -95,8 +95,11 @@ class TrainConfig:
   elastic_loss_type: str = 'log_svals'
   # Whether to use background regularization.
   use_background_loss: bool = False
+  # Whether to use background decompose loss. This loss is only defined for DecomposeNerfModel
+  use_bg_decompose_loss: bool = False
   # The weight for the background loss.
   background_loss_weight: float = 0.0
+  bg_decompose_loss_weight: float = 0.0
   # The batch size for background regularization loss.
   background_points_batch_size: int = 16384
   # Whether to use the warp reg loss.

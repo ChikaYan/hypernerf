@@ -190,6 +190,7 @@ class NerfMLP(nn.Module):
 @gin.configurable(denylist=['name'])
 class GLOEmbed(nn.Module):
   """A GLO encoder module, which is just a thin wrapper around nn.Embed.
+   A GLO encoder is just used to optimize along with training?
 
   Attributes:
     num_embeddings: The number of embeddings.
@@ -202,7 +203,7 @@ class GLOEmbed(nn.Module):
   embedding_init: types.Activation = nn.initializers.uniform(scale=0.05)
 
   def setup(self):
-    self.embed = nn.Embed(
+    self.embed = nn.Embed( # the flax Embed layer can be used to just store and fetch latent for each input index
         num_embeddings=self.num_embeddings,
         features=self.num_dims,
         embedding_init=self.embedding_init)

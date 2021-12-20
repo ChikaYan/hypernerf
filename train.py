@@ -82,6 +82,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
       writer.scalar(f'{stat_key}/{branch}', stat_value, step)
 
   _log_scalar('loss/background', stats.get('background_loss'))
+  _log_scalar('loss/bg_decompose', stats.get('bg_decompose_loss'))
 
   for k, v in time_dict.items():
     writer.scalar(f'time/{k}', v, step)
@@ -284,6 +285,7 @@ def main(argv):
       warp_reg_loss_alpha=train_config.warp_reg_loss_alpha,
       warp_reg_loss_scale=train_config.warp_reg_loss_scale,
       background_loss_weight=train_config.background_loss_weight,
+      bg_decompose_loss_weight=train_config.bg_decompose_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
   print(f'Loaded step {state.optimizer.state.step}')
@@ -307,6 +309,7 @@ def main(argv):
       elastic_loss_type=train_config.elastic_loss_type,
       use_elastic_loss=train_config.use_elastic_loss,
       use_background_loss=train_config.use_background_loss,
+      use_bg_decompose_loss=train_config.use_bg_decompose_loss,
       use_warp_reg_loss=train_config.use_warp_reg_loss,
       use_hyper_reg_loss=train_config.use_hyper_reg_loss,
   )

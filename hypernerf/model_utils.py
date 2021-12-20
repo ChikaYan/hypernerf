@@ -26,6 +26,7 @@ import jax.numpy as jnp
 @struct.dataclass
 class TrainState:
   """Stores training state, including the optimizer and model params."""
+  """ Basically a custom wrapper over the flax optimizer object to additionally include a set of extra parameters"""
   optimizer: optim.Optimizer
   nerf_alpha: Optional[jnp.ndarray] = None
   warp_alpha: Optional[jnp.ndarray] = None
