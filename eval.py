@@ -66,7 +66,7 @@ def compute_multiscale_ssim(image1: jnp.ndarray, image2: jnp.ndarray):
   """Compute the multiscale SSIM metric."""
   image1 = tf.convert_to_tensor(image1)
   image2 = tf.convert_to_tensor(image2)
-  return tf.image.ssim_multiscale(image1, image2, max_val=1.0)
+  return tf.image.ssim_multiscale(image1, image2, max_val=1.0, filter_size=8) # reduce filter size for smaller images
 
 
 def compute_ssim(image1: jnp.ndarray, image2: jnp.ndarray, pad=0,

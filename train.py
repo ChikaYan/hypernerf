@@ -83,6 +83,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
 
   _log_scalar('loss/background', stats.get('background_loss'))
   _log_scalar('loss/bg_decompose', stats.get('bg_decompose_loss'))
+  _log_scalar('loss/blendw_loss', stats.get('blendw_loss'))
 
   for k, v in time_dict.items():
     writer.scalar(f'time/{k}', v, step)
@@ -145,8 +146,8 @@ def main(argv):
 
   if FLAGS.debug:
     print('Debug mode on! Jitting is disabled')
-    jax_config.update("jax_debug_nans", True)
     jax_config.update('jax_disable_jit', True)
+    jax_config.update("jax_debug_nans", True)
 
   # add simple fix for VS debugger:
   if FLAGS.debug and FLAGS.gin_bindings[0][0]=='"':
@@ -286,6 +287,7 @@ def main(argv):
       warp_reg_loss_scale=train_config.warp_reg_loss_scale,
       background_loss_weight=train_config.background_loss_weight,
       bg_decompose_loss_weight=train_config.bg_decompose_loss_weight,
+      blendw_loss_weight=train_config.blendw_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
   print(f'Loaded step {state.optimizer.state.step}')

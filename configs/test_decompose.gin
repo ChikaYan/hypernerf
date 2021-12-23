@@ -1,7 +1,8 @@
 include 'configs/test_local.gin'
 
-TrainConfig.use_decompose_nerf = True
+image_scale = 2
 
+TrainConfig.use_decompose_nerf = True
 
 StaticNerfModel.num_coarse_samples = 64
 StaticNerfModel.num_fine_samples = 64
@@ -23,6 +24,7 @@ DecomposeNerfModel.hyper_slice_method = 'bendy_sheet'
 DecomposeNerfModel.hyper_sheet_mlp_cls = @HyperSheetMLP
 DecomposeNerfModel.hyper_use_warp_embed = True
 DecomposeNerfModel.use_warp = True
+DecomposeNerfModel.use_blendw_loss = True
 
 
 TrainConfig.print_every = 100
@@ -32,5 +34,6 @@ TrainConfig.save_every = 1000
 TrainConfig.use_background_loss = False
 TrainConfig.use_bg_decompose_loss = False
 TrainConfig.bg_decompose_loss_weight = 1.0
+TrainConfig.blendw_loss_weight = 0.001
 
 EvalConfig.save_output = True

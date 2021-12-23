@@ -44,6 +44,7 @@ class ScalarParams:
   warp_reg_loss_scale: float = 0.001
   background_loss_weight: float = 0.0
   bg_decompose_loss_weight: float = 0.0
+  blendw_loss_weight: float = 0.0
   background_noise_std: float = 0.001
   hyper_reg_loss_weight: float = 0.0
 
@@ -204,6 +205,18 @@ def compute_bg_decompose_loss(model, state, params, key, coarse_key, fine_key, p
       residual, alpha=alpha, scale=scale)
   return loss
 
+@functools.partial(jax.jit)
+def compute_blendw_loss(coarse_blendw, fine_blendw, clip_threshold=0.00001, alpha=-2, scale=0.001):
+  """
+  Compute the blendw loss based on entropy
+  """
+
+  blendw = jnp.concatenate([coarse_blendw.reshape([-1,1]), fine_blendw.reshape([-1,1])],0)
+  blendw = jnp.clip(blendw, a_min=clip_threshold, a_max=1-clip_threshold)
+  ones = jnp.ones_like(blendw)
+  entropy = - (blendw * jnp.log(blendw) + (ones-blendw)*jnp.log(ones-blendw))
+
+  return entropy
 
 @functools.partial(jax.jit,
                    static_argnums=0,
@@ -378,23 +391,31 @@ def train_step(model: models.NerfModel,
       losses['background'] = (
           scalar_params.background_loss_weight * background_loss)
       stats['background_loss'] = background_loss
-      if use_bg_decompose_loss:
-        # model used must be DecomposeNerf. 
-        if not isinstance(model,models.DecomposeNerfModel):
-          raise NotImplemented
-        bg_decompose_loss = compute_bg_decompose_loss(
-          model,
-          state=state,
-          params=params['model'],
-          key=reg_key,
-          coarse_key=coarse_key,
-          fine_key=fine_key,
-          points=batch['background_points'],
-          noise_std=scalar_params.background_noise_std)
-        bg_decompose_loss = bg_decompose_loss.mean()
-        losses['bg_decompose'] = (
-          scalar_params.bg_decompose_loss_weight * bg_decompose_loss)
-        stats['bg_decompose_loss'] = bg_decompose_loss
+    if use_bg_decompose_loss:
+      # model used must be DecomposeNerf. 
+      if not isinstance(model,models.DecomposeNerfModel):
+        raise NotImplemented
+      bg_decompose_loss = compute_bg_decompose_loss(
+        model,
+        state=state,
+        params=params['model'],
+        key=reg_key,
+        coarse_key=coarse_key,
+        fine_key=fine_key,
+        points=batch['background_points'],
+        noise_std=scalar_params.background_noise_std)
+      bg_decompose_loss = bg_decompose_loss.mean()
+      losses['bg_decompose'] = (
+        scalar_params.bg_decompose_loss_weight * bg_decompose_loss)
+      stats['bg_decompose_loss'] = bg_decompose_loss
+
+    if isinstance(model,models.DecomposeNerfModel) and model.use_blendw_loss:
+      blendw_loss = compute_blendw_loss(ret['coarse']['blendw'], ret['fine']['blendw'])
+      blendw_loss = blendw_loss.mean()
+      losses['blendw_loss'] = (
+        scalar_params.blendw_loss_weight * blendw_loss)
+      stats['blendw_loss'] = blendw_loss
+        
 
     return sum(losses.values()), (stats, ret)
 

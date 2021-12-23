@@ -24,6 +24,7 @@ from jax import random
 import jax.numpy as jnp
 
 from hypernerf import model_utils
+from hypernerf import utils
 from hypernerf import modules
 from hypernerf import types
 # pylint: disable=unused-import
@@ -1133,6 +1134,9 @@ class DecomposeNerfModel(NerfModel):
   # Evaluation render configs
   render_decompose: str = 'both'
 
+  # blending weight regularization loss
+  use_blendw_loss: bool = True
+
   @property
   def num_nerf_embeds(self):
     return max(self.embeddings_dict[self.nerf_embed_key]) + 1
@@ -1354,9 +1358,9 @@ class DecomposeNerfModel(NerfModel):
 
     rgb = nn.sigmoid(raw['rgb'])
     sigma = self.sigma_activation(jnp.squeeze(raw['alpha'][...,:1], axis=-1))
-    blending_w = nn.sigmoid(jnp.squeeze(raw['alpha'][...,1:], axis=-1)) # pass blending weight to softplus as well to ensure range [0,1]
+    blendw = nn.sigmoid(jnp.squeeze(raw['alpha'][...,1:], axis=-1)) # pass blending weight to softplus as well to ensure range [0,1]
 
-    return rgb, sigma, blending_w
+    return rgb, sigma, blendw
 
   def map_spatial_points(self, points, warp_embed, extra_params, use_warp=True,
                          return_warp_jacobian=False):
@@ -1492,7 +1496,7 @@ class DecomposeNerfModel(NerfModel):
         points, warp_embed, hyper_embed, extra_params, use_warp=use_warp,
         return_warp_jacobian=return_warp_jacobian) # check if removing overwrite is ok
 
-    _, _, blending_w = self.query_template(
+    _, _, blendw = self.query_template(
         level,
         warped_points,
         viewdirs,
@@ -1500,7 +1504,7 @@ class DecomposeNerfModel(NerfModel):
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
 
-    return blending_w
+    return blendw
 
 
   def render_samples(self,
@@ -1558,13 +1562,16 @@ class DecomposeNerfModel(NerfModel):
         # Override hyper points if present in metadata dict.
         hyper_point_override=metadata.get('hyper_point'))
 
-    rgb, sigma, blending_w = self.query_template(
+    rgb, sigma, blendw = self.query_template(
         level,
         warped_points,
         viewdirs,
         metadata,
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
+
+    if self.use_blendw_loss:
+      out['blendw'] = blendw
 
     # Filter densities based on rendering options.
     sigma = filter_sigma(points, sigma, render_opts)
@@ -1584,22 +1591,22 @@ class DecomposeNerfModel(NerfModel):
 
     if self.render_decompose == 'both':
       # combine static and dynamic nerf outputs
-      rgb = rgb * blending_w[...,None] + s_rgb * (jnp.ones_like(blending_w[...,None]) - blending_w[...,None])
-      sigma = sigma * blending_w + s_sigma * (jnp.ones_like(blending_w) - blending_w)
+      rgb = rgb * blendw[...,None] + s_rgb * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
+      sigma = sigma * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
     elif self.render_decompose == 'dynamic':
       # render dynamic component only for evaluation
-      rgb = rgb * blending_w[...,None] + jnp.zeros_like(s_rgb) * (jnp.ones_like(blending_w[...,None]) - blending_w[...,None])
-      sigma = sigma * blending_w + jnp.zeros_like(s_sigma) * (jnp.ones_like(blending_w) - blending_w)
+      rgb = rgb * blendw[...,None] + jnp.zeros_like(s_rgb) * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
+      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * (jnp.ones_like(blendw) - blendw)
     elif self.render_decompose == 'static':
       # render static component only for evaluation
-      rgb = jnp.zeros_like(rgb) * blending_w[...,None] + s_rgb * (jnp.ones_like(blending_w[...,None]) - blending_w[...,None])
-      sigma = jnp.zeros_like(sigma) * blending_w + s_sigma * (jnp.ones_like(blending_w) - blending_w)
-    elif self.render_decompose == 'blend_w':
+      rgb = jnp.zeros_like(rgb) * blendw[...,None] + s_rgb * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
+      sigma = jnp.zeros_like(sigma) * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
+    elif self.render_decompose == 'blendw':
       # render blending weights
-      rgb = jnp.ones_like(rgb) * blending_w[...,None]
-      sigma = sigma * blending_w + s_sigma * (jnp.ones_like(blending_w) - blending_w)
+      rgb = jnp.ones_like(rgb) * blendw[...,None]
+      sigma = sigma * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
     else:
-      raise NotImplemented
+      raise NotImplemented(f'Rendering model {self.render_decompose} is not recognized')
 
 
     out.update(model_utils.volumetric_rendering(
