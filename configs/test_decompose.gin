@@ -25,7 +25,7 @@ DecomposeNerfModel.hyper_sheet_mlp_cls = @HyperSheetMLP
 DecomposeNerfModel.hyper_use_warp_embed = True
 DecomposeNerfModel.use_warp = True
 DecomposeNerfModel.use_blendw_loss = True
-
+DecomposeNerfModel.blendw_out_depth = 4
 
 TrainConfig.print_every = 100
 TrainConfig.log_every = 100
@@ -34,6 +34,6 @@ TrainConfig.save_every = 1000
 TrainConfig.use_background_loss = False
 TrainConfig.use_bg_decompose_loss = False
 TrainConfig.bg_decompose_loss_weight = 1.0
-TrainConfig.blendw_loss_weight = 0.001
+TrainConfig.blendw_loss_weight = 0.0001
 
 EvalConfig.save_output = True

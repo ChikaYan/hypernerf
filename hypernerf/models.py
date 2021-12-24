@@ -1103,7 +1103,7 @@ class DecomposeNerfModel(NerfModel):
   viewdir_max_deg: int = 4
   use_posenc_identity: bool = True
 
-  alpha_channels: int = 2 # an additional output in alpha channel that acts as blending weight!
+  alpha_channels: int = 1
   rgb_channels: int = 3
   activation: types.Activation = nn.relu
   norm_type: Optional[str] = None
@@ -1136,6 +1136,8 @@ class DecomposeNerfModel(NerfModel):
 
   # blending weight regularization loss
   use_blendw_loss: bool = True
+  # where to output blendw. -1 means outputting together with density (last layer)
+  blendw_out_depth: int = -1
 
   @property
   def num_nerf_embeds(self):
@@ -1265,7 +1267,7 @@ class DecomposeNerfModel(NerfModel):
 
     norm_layer = modules.get_norm_layer(self.norm_type)
     nerf_mlps = {
-        'coarse': modules.NerfMLP(
+        'coarse': modules.BlendwNerfMLP(
             trunk_depth=self.nerf_trunk_depth,
             trunk_width=self.nerf_trunk_width,
             rgb_branch_depth=self.nerf_rgb_branch_depth,
@@ -1274,10 +1276,11 @@ class DecomposeNerfModel(NerfModel):
             norm=norm_layer,
             skips=self.nerf_skips,
             alpha_channels=self.alpha_channels,
-            rgb_channels=self.rgb_channels)
+            rgb_channels=self.rgb_channels,
+            blendw_output_depth=self.blendw_out_depth)
     }
     if self.num_fine_samples > 0:
-      nerf_mlps['fine'] = modules.NerfMLP(
+      nerf_mlps['fine'] = modules.BlendwNerfMLP(
           trunk_depth=self.nerf_trunk_depth,
           trunk_width=self.nerf_trunk_width,
           rgb_branch_depth=self.nerf_rgb_branch_depth,
@@ -1286,7 +1289,8 @@ class DecomposeNerfModel(NerfModel):
           norm=norm_layer,
           skips=self.nerf_skips,
           alpha_channels=self.alpha_channels,
-          rgb_channels=self.rgb_channels)
+          rgb_channels=self.rgb_channels,
+          blendw_output_depth=self.blendw_out_depth)
     self.nerf_mlps = nerf_mlps
 
   def get_condition_inputs(self, viewdirs, metadata, metadata_encoded=False):
@@ -1357,8 +1361,8 @@ class DecomposeNerfModel(NerfModel):
         self.make_rng(level), raw, self.noise_std, self.use_stratified_sampling) 
 
     rgb = nn.sigmoid(raw['rgb'])
-    sigma = self.sigma_activation(jnp.squeeze(raw['alpha'][...,:1], axis=-1))
-    blendw = nn.sigmoid(jnp.squeeze(raw['alpha'][...,1:], axis=-1)) # pass blending weight to softplus as well to ensure range [0,1]
+    sigma = self.sigma_activation(jnp.squeeze(raw['alpha'], axis=-1))
+    blendw = nn.sigmoid(jnp.squeeze(raw['blendw'], axis=-1))
 
     return rgb, sigma, blendw
 
