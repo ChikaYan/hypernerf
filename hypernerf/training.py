@@ -20,6 +20,7 @@ from absl import logging
 import flax
 from flax import struct
 from flax import traverse_util
+from flax.linen.module import init
 from flax.training import checkpoints
 import jax
 from jax import lax
@@ -229,12 +230,15 @@ def compute_blendw_loss(coarse_blendw, fine_blendw, clip_threshold=0.00001, alph
                                     'use_background_loss',
                                     'use_warp_reg_loss',
                                     'use_hyper_reg_loss',
-                                    'use_bg_decompose_loss'))
+                                    'use_bg_decompose_loss',
+                                    'multi_optimizer',
+                                    'init_static_steps'))
 def train_step(model: models.NerfModel,
                rng_key: Callable[[int], jnp.ndarray],
                state: model_utils.TrainState,
                batch: Dict[str, Any],
                scalar_params: ScalarParams,
+               step: int,
                disable_hyper_grads: bool = False,
                grad_max_val: float = 0.0,
                grad_max_norm: float = 0.0,
@@ -244,7 +248,10 @@ def train_step(model: models.NerfModel,
                use_background_loss: bool = False,
                use_bg_decompose_loss: bool = False,
                use_warp_reg_loss: bool = False,
-               use_hyper_reg_loss: bool = False):
+               use_hyper_reg_loss: bool = False,
+               freeze_dynamic: bool = False,
+               multi_optimizer: bool = False,
+               init_static_steps: int = 0):
   """One optimization step.
 
   Args:
@@ -431,7 +438,17 @@ def train_step(model: models.NerfModel,
     grad = utils.clip_gradients(grad, grad_max_val, grad_max_norm)
   stats = jax.lax.pmean(stats, axis_name='batch')
   model_out = jax.lax.pmean(model_out, axis_name='batch')
-  new_optimizer = optimizer.apply_gradient(
-      grad, learning_rate=scalar_params.learning_rate)
+
+  if multi_optimizer:
+    hparams = optimizer.optimizer_def.hyper_params
+    new_optimizer = optimizer.apply_gradient(
+        grad, 
+        hyper_params=[
+          hparams[0].replace(learning_rate=scalar_params.learning_rate),
+          hparams[1].replace(learning_rate=jnp.where(step <= init_static_steps, 0., scalar_params.learning_rate)),
+    ])
+  else:
+    new_optimizer = optimizer.apply_gradient(
+        grad, learning_rate=scalar_params.learning_rate)
   new_state = state.replace(optimizer=new_optimizer)
   return new_state, stats, rng_key, model_out

@@ -139,6 +139,10 @@ class TrainConfig:
   # Use decompose NeRF or not
   use_decompose_nerf: bool = False
 
+  # Initialize the static model for several iterations first
+  # During this, dynamic model would be frozen
+  init_static_steps:int = 0
+
 
 @gin.configurable()
 @dataclasses.dataclass
@@ -169,3 +173,6 @@ class EvalConfig:
   num_train_eval: Optional[int] = 10
   # The number of test examples to evaluate.
   num_test_eval: Optional[int] = 10
+
+  # normalise the rgb renderings
+  normalise_rendering: bool = False

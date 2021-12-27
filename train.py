@@ -25,6 +25,7 @@ from flax import jax_utils
 from flax import optim
 from flax.metrics import tensorboard
 from flax.training import checkpoints
+from flax import traverse_util
 import gin
 import jax
 from jax import numpy as jnp
@@ -269,10 +270,31 @@ def main(argv):
   elastic_loss_weight_sched = schedules.from_config(
       train_config.elastic_loss_weight_schedule)
 
-  optimizer_def = optim.Adam(learning_rate_sched(0))
-  if train_config.use_weight_norm:
-    optimizer_def = optim.WeightNorm(optimizer_def)
+
+  if train_config.init_static_steps > 0:
+    if not train_config.use_decompose_nerf:
+      raise NotImplemented('init_static_steps can only be set when using decompose nerf!')
+
+    # seperate the optimizer for static and dynamic components 
+    static_traversal = traverse_util.ModelParamTraversal(lambda path, _: 'static_nerf' in path)
+    dynamic_traversal = traverse_util.ModelParamTraversal(lambda path, _: 'static_nerf' not in path)
+
+    static_opt = optim.Adam(learning_rate_sched(0))
+    dynamic_opt = optim.Adam(0)
+    if train_config.use_weight_norm:
+      static_opt = optim.WeightNorm(static_opt)
+      dynamic_opt = optim.WeightNorm(dynamic_opt)
+
+    optimizer_def = optim.MultiOptimizer((static_traversal, static_opt),((dynamic_traversal, dynamic_opt)))
+    multi_optimizer = True
+  else:
+    optimizer_def = optim.Adam(learning_rate_sched(0))
+    if train_config.use_weight_norm:
+      optimizer_def = optim.WeightNorm(optimizer_def)
+    multi_optimizer = False
+
   optimizer = optimizer_def.create(params)
+
   state = model_utils.TrainState(
       optimizer=optimizer,
       nerf_alpha=nerf_alpha_sched(0),
@@ -314,6 +336,8 @@ def main(argv):
       use_bg_decompose_loss=train_config.use_bg_decompose_loss,
       use_warp_reg_loss=train_config.use_warp_reg_loss,
       use_hyper_reg_loss=train_config.use_hyper_reg_loss,
+      multi_optimizer=multi_optimizer,
+      init_static_steps=train_config.init_static_steps
   )
 
   if FLAGS.debug:
@@ -322,7 +346,7 @@ def main(argv):
         train_step,
         axis_name='batch',
         # rng_key, state, batch, scalar_params.
-        in_axes=(0, 0, 0, None)
+        in_axes=(0, 0, 0, None, None) 
     )
   else:
     ptrain_step = jax.pmap( # jax parallel map
@@ -330,7 +354,7 @@ def main(argv):
         axis_name='batch', # assigns a hashable name to the axis, which can be later referred to by other functions
         devices=devices,
         # rng_key, state, batch, scalar_params.
-        in_axes=(0, 0, 0, None), # in_axes is used to align and pad the inputs to match dimensions
+        in_axes=(0, 0, 0, None, None), # in_axes is used to align and pad the inputs to match dimensions
         # Treat use_elastic_loss as compile-time static.
         donate_argnums=(2,),  # Donate the 'batch' argument -- arguments that are no longer needed after computation can be donated to reduce memory requirement
     )
@@ -370,7 +394,7 @@ def main(argv):
 
     with time_tracker.record_time('train_step'):
       state, stats, keys, model_out = ptrain_step(
-          keys, state, batch, scalar_params)
+          keys, state, batch, scalar_params, step)
       time_tracker.toc('total')
 
     if step % train_config.print_every == 0 and jax.process_index() == 0:

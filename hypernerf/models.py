@@ -164,6 +164,9 @@ class NerfModel(nn.Module):
       functools.partial(modules.GLOEmbed, num_dims=8))
   warp_embed_key: str = 'warp'
 
+  # render configs
+  render_mode: str = None 
+
   @property
   def num_nerf_embeds(self):
     return max(self.embeddings_dict[self.nerf_embed_key]) + 1
@@ -531,6 +534,17 @@ class NerfModel(nn.Module):
         metadata,
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
+
+    if self.render_mode is not None:
+      if self.render_mode == 'deformation':
+        # render the amount of deformation in dynamic component
+        rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) # need to ensure range [0,1]. TODO: better normalization
+      elif self.render_mode == 'time':
+        # render the warped time coordinate
+        # TODO: find better way of converting 4D or more coordinate into RGB
+        rgb = jnp.clip((warped_points[...,3:6]), 0, 1)
+      else:
+        raise NotImplemented(f'Rendering model {self.render_mode} is not recognized')
 
     # Filter densities based on rendering options.
     sigma = filter_sigma(points, sigma, render_opts)
@@ -1132,7 +1146,7 @@ class DecomposeNerfModel(NerfModel):
   warp_embed_key: str = 'warp'
 
   # Evaluation render configs
-  render_decompose: str = 'both'
+  render_mode: str = 'both'
 
   # blending weight regularization loss
   use_blendw_loss: bool = True
@@ -1593,24 +1607,33 @@ class DecomposeNerfModel(NerfModel):
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
 
-    if self.render_decompose == 'both':
+    if self.render_mode == 'both':
       # combine static and dynamic nerf outputs
       rgb = rgb * blendw[...,None] + s_rgb * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
       sigma = sigma * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
-    elif self.render_decompose == 'dynamic':
+    elif self.render_mode == 'dynamic':
       # render dynamic component only for evaluation
       rgb = rgb * blendw[...,None] + jnp.zeros_like(s_rgb) * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
       sigma = sigma * blendw + jnp.zeros_like(s_sigma) * (jnp.ones_like(blendw) - blendw)
-    elif self.render_decompose == 'static':
+    elif self.render_mode == 'static':
       # render static component only for evaluation
       rgb = jnp.zeros_like(rgb) * blendw[...,None] + s_rgb * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
       sigma = jnp.zeros_like(sigma) * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
-    elif self.render_decompose == 'blendw':
+    elif self.render_mode == 'blendw':
       # render blending weights
       rgb = jnp.ones_like(rgb) * blendw[...,None]
       sigma = sigma * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
+    elif self.render_mode == 'deformation':
+      # render the amount of deformation in dynamic component
+      rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) # need to ensure range [0,1]. TODO: better normalization
+      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * (jnp.ones_like(blendw) - blendw)
+    elif self.render_mode == 'time':
+      # render the warped time coordinate
+      # TODO: find better way of converting 4D or more coordinate into RGB
+      rgb = jnp.clip((warped_points[...,3:6]), 0, 1)
+      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * (jnp.ones_like(blendw) - blendw)
     else:
-      raise NotImplemented(f'Rendering model {self.render_decompose} is not recognized')
+      raise NotImplemented(f'Rendering model {self.render_mode} is not recognized')
 
 
     out.update(model_utils.volumetric_rendering(
