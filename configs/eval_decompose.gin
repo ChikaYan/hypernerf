@@ -1,7 +1,0 @@
-include 'configs/test_decompose.gin'
-
-# render 'dynamic', 'static', 'both' or 'blendw' component 
-render_mode = 'blendw'
-DecomposeNerfModel.render_decompose = %render_mode
-EvalConfig.subname = %render_mode
-EvalConfig.save_output = False

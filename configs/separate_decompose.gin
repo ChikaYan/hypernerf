@@ -1,0 +1,23 @@
+# Training decompose nerf using explicit separating through mask
+
+include 'configs/test_decompose.gin'
+
+# Load and use mask
+ExperimentConfig.datasource_cls = @SepTrainDataSource
+SepTrainDataSource.data_dir = %data_dir
+SepTrainDataSource.image_scale = %image_scale
+TrainConfig.use_mask_sep_train = True
+
+
+DecomposeNerfModel.use_blendw_loss = True
+DecomposeNerfModel.blendw_out_depth = 4
+
+TrainConfig.use_background_loss = False
+TrainConfig.use_bg_decompose_loss = False
+TrainConfig.bg_decompose_loss_weight = 1.0
+TrainConfig.blendw_loss_weight = 0.0001
+
+# initialize static model for some iterations first
+TrainConfig.init_static_steps = 5000
+
+

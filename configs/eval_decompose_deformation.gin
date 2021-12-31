@@ -1,0 +1,7 @@
+include 'configs/test_decompose.gin'
+
+# render 'dynamic', 'static', 'both', 'blendw' or 'deformation' component 
+render_mode = 'deformation'
+DecomposeNerfModel.render_mode = %render_mode
+EvalConfig.subname = %render_mode
+EvalConfig.normalise_rendering = True
