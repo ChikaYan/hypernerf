@@ -118,14 +118,10 @@ def plot_images(*,
                 model_out: Any,
                 save_dir: Optional[gpath.GPath],
                 datasource: datasets.DataSource,
-                extra_images=None,
-                normalise_rendering: bool=False):
+                extra_images=None):
   """Process and plot a single batch."""
   item_id = item_id.replace('/', '_')
   rgb = model_out['rgb'][..., :3]
-  if normalise_rendering:
-    rgb = rgb / jnp.max(rgb)
-
   acc = model_out['acc']
   depth_exp = model_out['depth']
   depth_med = model_out['med_depth']
@@ -252,8 +248,7 @@ def process_iterator(tag: str,
         summary_writer=summary_writer,
         save_dir=save_dir,
         datasource=datasource,
-        extra_images=extra_images,
-        normalise_rendering=normalise_rendering)
+        extra_images=extra_images)
     if jax.process_index() == 0:
       stats = compute_stats(batch, model_out)
       plot_images(
@@ -265,8 +260,7 @@ def process_iterator(tag: str,
           summary_writer=summary_writer,
           save_dir=save_dir,
           datasource=datasource,
-          extra_images=extra_images,
-          normalise_rendering=normalise_rendering)
+          extra_images=extra_images)
     if jax.process_index() == 0:
       for k, v in stats.items():
         meters[k].update(v)
@@ -442,7 +436,9 @@ def main(argv):
   render_fn = functools.partial(evaluation.render_image,
                                 model_fn=pmodel_fn,
                                 device_count=n_devices,
-                                chunk=eval_config.chunk)
+                                chunk=eval_config.chunk,
+                                normalise_rendering=eval_config.normalise_rendering,
+                                use_tsne=eval_config.use_tsne)
 
   last_step = 0
   summary_writer = tensorboard.SummaryWriter(str(summary_dir))
@@ -474,8 +470,7 @@ def main(argv):
           summary_writer=summary_writer,
           save_dir=save_dir,
           datasource=datasource,
-          model=model,
-          normalise_rendering=eval_config.normalise_rendering)
+          model=model)
 
     process_iterator(tag='train',
                      item_ids=train_eval_ids,
@@ -487,8 +482,7 @@ def main(argv):
                      summary_writer=summary_writer,
                      save_dir=save_dir,
                      datasource=datasource,
-                     model=model,
-                     normalise_rendering=eval_config.normalise_rendering)
+                     model=model)
 
     if test_eval_iter:
       process_iterator(tag='test',
@@ -501,8 +495,7 @@ def main(argv):
                        summary_writer=summary_writer,
                        save_dir=save_dir,
                        datasource=datasource,
-                       model=model,
-                       normalise_rendering=eval_config.normalise_rendering)
+                       model=model)
 
     if save_dir:
       delete_old_renders(renders_dir, eval_config.max_render_checkpoints)
