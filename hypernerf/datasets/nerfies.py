@@ -91,6 +91,7 @@ class NerfiesDataSource(core.DataSource):
                shuffle_pixels: bool = False,
                camera_type: str = 'json',
                test_camera_trajectory: str = 'orbit-mild',
+               use_gt_camera: bool = False,
                **kwargs):
     self.data_dir = gpath.GPath(data_dir)
     # Load IDs from JSON if it exists. This is useful since COLMAP fails on
@@ -111,6 +112,8 @@ class NerfiesDataSource(core.DataSource):
       raise ValueError('The camera type needs to be json.')
     self.camera_type = camera_type
     self.camera_dir = gpath.GPath(data_dir, 'camera')
+    if use_gt_camera:
+      self.camera_dir = gpath.GPath(data_dir, 'camera-gt')
 
     metadata_path = self.data_dir / 'metadata.json'
     if metadata_path.exists():
