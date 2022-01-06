@@ -141,7 +141,10 @@ class TrainConfig:
 
   # Initialize the static model for several iterations first
   # During this, dynamic model would be frozen
-  init_static_steps:int = 0
+  init_static_steps: int = 0
+
+  # Use provided dynmaic object mask to separately train the dynamic and static component
+  use_mask_sep_train: bool = False
 
 
 @gin.configurable()
@@ -176,3 +179,5 @@ class EvalConfig:
 
   # normalise the rgb renderings
   normalise_rendering: bool = False
+  # use TSNE to map higher dimension RGB return to 3D
+  use_tsne: bool = False

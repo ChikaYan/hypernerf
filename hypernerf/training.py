@@ -231,14 +231,14 @@ def compute_blendw_loss(coarse_blendw, fine_blendw, clip_threshold=0.00001, alph
                                     'use_warp_reg_loss',
                                     'use_hyper_reg_loss',
                                     'use_bg_decompose_loss',
-                                    'multi_optimizer',
-                                    'init_static_steps'))
+                                    'multi_optimizer'))
 def train_step(model: models.NerfModel,
                rng_key: Callable[[int], jnp.ndarray],
                state: model_utils.TrainState,
                batch: Dict[str, Any],
                scalar_params: ScalarParams,
-               step: int,
+               freeze_static: bool = False,
+               freeze_dynamic: bool = False,
                disable_hyper_grads: bool = False,
                grad_max_val: float = 0.0,
                grad_max_norm: float = 0.0,
@@ -249,9 +249,7 @@ def train_step(model: models.NerfModel,
                use_bg_decompose_loss: bool = False,
                use_warp_reg_loss: bool = False,
                use_hyper_reg_loss: bool = False,
-               freeze_dynamic: bool = False,
-               multi_optimizer: bool = False,
-               init_static_steps: int = 0):
+               multi_optimizer: bool = False):
   """One optimization step.
 
   Args:
@@ -272,6 +270,9 @@ def train_step(model: models.NerfModel,
     use_background_loss: if True use the background regularization loss.
     use_warp_reg_loss: if True use the warp regularization loss.
     use_hyper_reg_loss: if True regularize the hyper points.
+    multi_optimizer: whether separate optimizers are used for training dynamic and static components. Necessary for allowing separate training
+    freeze_static: stop training static component
+    freeze_dynamic: stop training dynamic component
 
   Returns:
     new_state: model_utils.TrainState, new training state.
@@ -441,11 +442,17 @@ def train_step(model: models.NerfModel,
 
   if multi_optimizer:
     hparams = optimizer.optimizer_def.hyper_params
+
+    def freeze_train(hparam):
+      return hparam.replace(learning_rate=0.)
+    def enable_train(hparam):
+      return hparam.replace(learning_rate=scalar_params.learning_rate)
+      
     new_optimizer = optimizer.apply_gradient(
         grad, 
         hyper_params=[
-          hparams[0].replace(learning_rate=scalar_params.learning_rate),
-          hparams[1].replace(learning_rate=jnp.where(step <= init_static_steps, 0., scalar_params.learning_rate)),
+          jax.lax.cond(freeze_static, freeze_train, enable_train, hparams[0]),
+          jax.lax.cond(freeze_dynamic, freeze_train, enable_train, hparams[1])
     ])
   else:
     new_optimizer = optimizer.apply_gradient(

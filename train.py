@@ -220,7 +220,8 @@ def main(argv):
           dummy_model.nerf_embed_key == 'appearance'
           or dummy_model.hyper_embed_key == 'appearance'),
       use_camera_id=dummy_model.nerf_embed_key == 'camera',
-      use_time=dummy_model.warp_embed_key == 'time')
+      use_time=dummy_model.warp_embed_key == 'time',
+      use_mask=train_config.use_mask_sep_train)
 
   # Create Model.
   logging.info('Initializing models.')
@@ -273,14 +274,14 @@ def main(argv):
 
   if train_config.init_static_steps > 0:
     if not train_config.use_decompose_nerf:
-      raise NotImplemented('init_static_steps can only be set when using decompose nerf!')
+      raise NotImplementedError('init_static_steps can only be set when using decompose nerf!')
 
     # seperate the optimizer for static and dynamic components 
     static_traversal = traverse_util.ModelParamTraversal(lambda path, _: 'static_nerf' in path)
     dynamic_traversal = traverse_util.ModelParamTraversal(lambda path, _: 'static_nerf' not in path)
 
     static_opt = optim.Adam(learning_rate_sched(0))
-    dynamic_opt = optim.Adam(0)
+    dynamic_opt = optim.Adam(0.)
     if train_config.use_weight_norm:
       static_opt = optim.WeightNorm(static_opt)
       dynamic_opt = optim.WeightNorm(dynamic_opt)
@@ -336,9 +337,7 @@ def main(argv):
       use_bg_decompose_loss=train_config.use_bg_decompose_loss,
       use_warp_reg_loss=train_config.use_warp_reg_loss,
       use_hyper_reg_loss=train_config.use_hyper_reg_loss,
-      multi_optimizer=multi_optimizer,
-      init_static_steps=train_config.init_static_steps
-  )
+      multi_optimizer=multi_optimizer)
 
   if FLAGS.debug:
     # vmap version for debugging
@@ -346,7 +345,7 @@ def main(argv):
         train_step,
         axis_name='batch',
         # rng_key, state, batch, scalar_params.
-        in_axes=(0, 0, 0, None, None) 
+        in_axes=(0, 0, 0, None, None, None) 
     )
   else:
     ptrain_step = jax.pmap( # jax parallel map
@@ -354,7 +353,7 @@ def main(argv):
         axis_name='batch', # assigns a hashable name to the axis, which can be later referred to by other functions
         devices=devices,
         # rng_key, state, batch, scalar_params.
-        in_axes=(0, 0, 0, None, None), # in_axes is used to align and pad the inputs to match dimensions
+        in_axes=(0, 0, 0, None, None, None), # in_axes is used to align and pad the inputs to match dimensions
         # Treat use_elastic_loss as compile-time static.
         donate_argnums=(2,),  # Donate the 'batch' argument -- arguments that are no longer needed after computation can be donated to reduce memory requirement
     )
@@ -392,9 +391,24 @@ def main(argv):
                           hyper_alpha=hyper_alpha,
                           hyper_sheet_alpha=hyper_sheet_alpha)
 
+    freeze_static = False
+    freeze_dynamic = step < train_config.init_static_steps
+
+    if train_config.use_mask_sep_train:
+      # check the mask in the batch to disable training of the opposite component
+      pred = (batch['mask'] > 0)[0,:,0]
+      if all(pred) !=  any(pred):
+        raise ValueError('Batch separation is incorrect, one batch contains rays for both static and dynamic components')
+      if all(pred):
+        # dynamic batch
+        freeze_static = True
+      else:
+        # static batch
+        freeze_dynamic = True
+
     with time_tracker.record_time('train_step'):
       state, stats, keys, model_out = ptrain_step(
-          keys, state, batch, scalar_params, step)
+          keys, state, batch, scalar_params, freeze_static, freeze_dynamic)
       time_tracker.toc('total')
 
     if step % train_config.print_every == 0 and jax.process_index() == 0:
@@ -409,9 +423,10 @@ def main(argv):
       logging.info('\tcoarse metrics: %s', coarse_metrics_str)
       if 'fine' in stats:
         logging.info('\tfine metrics: %s', fine_metrics_str)
+      logging.info(f'\tfreeze_static: {freeze_static}, freeze_dynamic: {freeze_dynamic}')
 
     if step % train_config.save_every == 0 and jax.process_index() == 0:
-      training.save_checkpoint(checkpoint_dir, state, keep=5)
+      training.save_checkpoint(checkpoint_dir, state, keep=10)
 
     if step % train_config.log_every == 0 and jax.process_index() == 0:
       # Only log via process 0.
@@ -429,7 +444,7 @@ def main(argv):
     time_tracker.tic('data', 'total')
 
   if train_config.max_steps % train_config.save_every != 0:
-    training.save_checkpoint(checkpoint_dir, state, keep=5)
+    training.save_checkpoint(checkpoint_dir, state, keep=10)
 
 
 if __name__ == '__main__':

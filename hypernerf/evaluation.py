@@ -138,14 +138,24 @@ def render_image(
   if normalise_rendering:
     out['rgb'] = out['rgb'] / jnp.max(out['rgb'])
 
-  if use_tsne and out['rgb'].shape[-1] > 3:
-    # map rgb to 3D if it has higher dimension
-    # needed when trying to visualize higher dimensional data such as time coord
-    rgb_shape = list(out['rgb'].shape)
-    rgb = jnp.reshape(out['rgb'],[-1, rgb_shape[-1]])
-    rgb_embed = TSNE(n_components=3, learning_rate='auto',init='random').fit_transform(rgb)
-    # normalize the output to be within range [0,1]
-    rgb_embed = (rgb_embed - rgb_embed.min())/(rgb_embed.max()-rgb_embed.min())
-    out['rgb'] = jnp.reshape(rgb_embed, rgb_shape[:-1] + [3])
+
+  if out['rgb'].shape[-1] > 3:
+    if use_tsne:
+      # map rgb to 3D if it has higher dimension
+      # needed when trying to visualize higher dimensional data such as time coord
+      rgb_shape = list(out['rgb'].shape)
+      rgb = jnp.reshape(out['rgb'],[-1, rgb_shape[-1]])
+      rgb_embed = TSNE(n_components=3, learning_rate='auto',init='random').fit_transform(rgb)
+      # normalize the output to be within range [0,1]
+      rgb_embed = (rgb_embed - rgb_embed.min())/(rgb_embed.max()-rgb_embed.min())
+      out['rgb'] = jnp.reshape(rgb_embed, rgb_shape[:-1] + [3])
+    else:
+      # map to lower dimension using naive method
+      # TODO: check!
+      rgb = out['rgb']
+      while rgb.shape[-1] > 3:
+        rgb[...,:3] = (rgb[...,:3] + rgb[...,-3:])/2
+        rgb = rgb[...,:-3]
+      out['rgb'] = rgb
 
   return out

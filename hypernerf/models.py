@@ -538,13 +538,14 @@ class NerfModel(nn.Module):
     if self.render_mode is not None:
       if self.render_mode == 'deformation':
         # render the amount of deformation in dynamic component
-        rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) # need to ensure range [0,1]. TODO: better normalization
+        # need to ensure range [0,1]. TODO: better normalization
+        rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
       elif self.render_mode == 'time':
         # render the warped time coordinate
-        # TODO: find better way of converting 4D or more coordinate into RGB
-        rgb = jnp.clip((warped_points[...,3:6]), 0, 1)
+        # Trying volume rendering with 4D data
+        rgb = jnp.clip((warped_points[...,3:]), 0, 1)
       else:
-        raise NotImplemented(f'Rendering model {self.render_mode} is not recognized')
+        raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
 
     # Filter densities based on rendering options.
     sigma = filter_sigma(points, sigma, render_opts)
@@ -1607,6 +1608,9 @@ class DecomposeNerfModel(NerfModel):
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
 
+    # for pure static! Need to be removed for proper training
+    # blendw = jnp.ones_like(blendw) / 2.
+
     if self.render_mode == 'both':
       # combine static and dynamic nerf outputs
       rgb = rgb * blendw[...,None] + s_rgb * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
@@ -1625,15 +1629,15 @@ class DecomposeNerfModel(NerfModel):
       sigma = sigma * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
     elif self.render_mode == 'deformation':
       # render the amount of deformation in dynamic component
-      rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) # need to ensure range [0,1]. TODO: better normalization
+      # need to ensure range [0,1]. TODO: better normalization
+      rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
       sigma = sigma * blendw + jnp.zeros_like(s_sigma) * (jnp.ones_like(blendw) - blendw)
     elif self.render_mode == 'time':
       # render the warped time coordinate
-      # TODO: find better way of converting 4D or more coordinate into RGB
-      rgb = jnp.clip((warped_points[...,3:6]), 0, 1)
+      rgb = jnp.clip((warped_points[...,3:]), 0, 1)
       sigma = sigma * blendw + jnp.zeros_like(s_sigma) * (jnp.ones_like(blendw) - blendw)
     else:
-      raise NotImplemented(f'Rendering model {self.render_mode} is not recognized')
+      raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
 
 
     out.update(model_utils.volumetric_rendering(
