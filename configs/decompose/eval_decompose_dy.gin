@@ -1,7 +1,6 @@
-include 'configs/test_decompose.gin'
+include 'configs/decompose/train.gin'
 
 # render 'dynamic', 'static', 'both', 'blendw' or 'deformation' component 
-render_mode = 'time'
+render_mode = 'dynamic'
 DecomposeNerfModel.render_mode = %render_mode
 EvalConfig.subname = %render_mode
-EvalConfig.normalise_rendering = True

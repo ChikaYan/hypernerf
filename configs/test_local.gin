@@ -1,7 +1,7 @@
 include 'configs/defaults.gin'
 
-image_scale = 4
-batch_size = 2048
+image_scale = 2
+batch_size = 512
 eval_batch_size = 8192
 
 elastic_init_weight = 0.01
@@ -76,3 +76,5 @@ EvalConfig.eval_once = False
 EvalConfig.save_output = False
 EvalConfig.num_train_eval = 5
 EvalConfig.num_val_eval = 5
+
+NerfiesDataSource.use_gt_camera = True

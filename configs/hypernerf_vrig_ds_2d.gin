@@ -4,7 +4,7 @@ max_steps = 250000
 lr_decay_steps = %max_steps
 
 image_scale = 4
-batch_size = 6144
+batch_size = 4096
 eval_batch_size = 8096
 init_lr = 0.001
 final_lr = 0.0001
