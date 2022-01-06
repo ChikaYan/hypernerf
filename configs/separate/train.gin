@@ -2,12 +2,15 @@
 
 include 'configs/test_decompose.gin'
 
+batch_size = 512
+max_steps = 50000
+
 # Load and use mask
 ExperimentConfig.datasource_cls = @SepTrainDataSource
 SepTrainDataSource.data_dir = %data_dir
 SepTrainDataSource.image_scale = %image_scale
+SepTrainDataSource.use_gt_camera = False
 TrainConfig.use_mask_sep_train = True
-
 
 DecomposeNerfModel.use_blendw_loss = True
 DecomposeNerfModel.blendw_out_depth = 4
@@ -18,6 +21,6 @@ TrainConfig.bg_decompose_loss_weight = 1.0
 TrainConfig.blendw_loss_weight = 0.0001
 
 # initialize static model for some iterations first
-TrainConfig.init_static_steps = 5000
+TrainConfig.init_static_steps = 1
 
 

@@ -1,0 +1,9 @@
+include 'configs/separate/train.gin'
+
+eval_batch_size = 1024
+
+# render 'dynamic', 'static', 'both', 'blendw' or 'deformation' component 
+render_mode = 'time'
+DecomposeNerfModel.render_mode = %render_mode
+EvalConfig.subname = %render_mode
+EvalConfig.normalise_rendering = True

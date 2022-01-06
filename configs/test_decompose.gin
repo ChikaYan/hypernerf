@@ -1,7 +1,7 @@
 include 'configs/test_local.gin'
 
 image_scale = 2
-max_steps = 200000
+max_steps = 50000
 
 TrainConfig.use_decompose_nerf = True
 
@@ -38,7 +38,9 @@ TrainConfig.bg_decompose_loss_weight = 1.0
 TrainConfig.blendw_loss_weight = 0.0001
 
 # initialize static model for some iterations first
-TrainConfig.init_static_steps = 5000
+TrainConfig.init_static_steps = 50000
 
 EvalConfig.save_output = False
 EvalConfig.num_test_eval = 1
+
+NerfiesDataSource.use_gt_camera = True
