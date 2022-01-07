@@ -1589,9 +1589,6 @@ class DecomposeNerfModel(NerfModel):
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
 
-    if self.use_blendw_loss:
-      out['blendw'] = blendw
-
     # Filter densities based on rendering options.
     sigma = filter_sigma(points, sigma, render_opts)
 
@@ -1608,8 +1605,13 @@ class DecomposeNerfModel(NerfModel):
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
 
-    # for pure static! Need to be removed for proper training
-    # blendw = jnp.ones_like(blendw) / 2.
+    # training static only, use blendw = 0
+    cond = 'freeze_dynamic' in extra_params.keys() and extra_params['freeze_dynamic']
+    blendw = jax.lax.cond(cond, lambda: jnp.zeros_like(blendw), lambda: blendw)
+
+
+    if self.use_blendw_loss:
+      out['blendw'] = blendw
 
     if self.render_mode == 'both':
       # combine static and dynamic nerf outputs

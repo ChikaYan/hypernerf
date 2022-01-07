@@ -32,6 +32,7 @@ class TrainState:
   warp_alpha: Optional[jnp.ndarray] = None
   hyper_alpha: Optional[jnp.ndarray] = None
   hyper_sheet_alpha: Optional[jnp.ndarray] = None
+  freeze_dynamic: bool = False
 
   @property
   def extra_params(self):
@@ -40,6 +41,7 @@ class TrainState:
         'warp_alpha': self.warp_alpha,
         'hyper_alpha': self.hyper_alpha,
         'hyper_sheet_alpha': self.hyper_sheet_alpha,
+        'freeze_dynamic': self.freeze_dynamic
     }
 
 

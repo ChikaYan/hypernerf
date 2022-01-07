@@ -18,7 +18,7 @@
             "request": "launch",
             "program": "train.py",
             "console": "integratedTerminal",
-            "args": ["--base_folder", "log/debug/decompose", "--gin_bindings=\"data_dir='./data/kubric_cone_v2/'\"", "--gin_configs", "configs/test_decompose.gin", "--debug"]
+            "args": ["--base_folder", "log/debug/decompose", "--gin_bindings=\"data_dir='./data/kubric_cone_v2/'\"", "--gin_configs", "configs/decompose/train.gin", "--debug"]
         },
         {
             "name": "train_separate",
@@ -59,7 +59,7 @@
             "request": "launch",
             "program": "eval.py",
             "console": "integratedTerminal",
-            "args": ["--base_folder", "log/kubric_cone_v2/original/", "--gin_bindings=\"data_dir='./data/kubric_cone_v2/'\"", "--gin_configs", "configs/test_local.gin", "--debug"]
+            "args": ["--base_folder", "log/kubric_car/decompose_v2/", "--gin_bindings=\"data_dir='./data/kubric_car/'\"", "--gin_configs", "configs/decompose/eval_decompose_static.gin", "--debug"]
         }
     ]
 }

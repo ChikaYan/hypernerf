@@ -365,9 +365,11 @@ def train_step(model: models.NerfModel,
     return loss, stats
 
   def _loss_fn(params):
+    extra_params = state.extra_params
+    extra_params['freeze_dynamic'] = freeze_dynamic
     ret = model.apply({'params': params['model']},
                       batch,
-                      extra_params=state.extra_params,
+                      extra_params=extra_params,
                       return_points=(use_warp_reg_loss or use_hyper_reg_loss),
                       return_weights=(use_warp_reg_loss or use_elastic_loss), # whether return density weights
                       return_warp_jacobian=use_elastic_loss,

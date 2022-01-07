@@ -1,7 +1,8 @@
 #!/bin/bash
 
 DATA_PATH='./data/kubric_car/'
-LOG_PATH='log/kubric_car/decompose'
+LOG_PATH='log/kubric_car/decompose_v3/'
+# LOG_PATH='log/debug/decompose_nan/'
 
 python train.py --base_folder $LOG_PATH --gin_bindings="data_dir='$DATA_PATH'" --gin_configs configs/decompose/train.gin
 
