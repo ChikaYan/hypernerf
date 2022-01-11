@@ -225,7 +225,7 @@ def process_iterator(tag: str,
                      save_dir: Optional[gpath.GPath],
                      datasource: datasets.DataSource,
                      model: models.NerfModel,
-                     normalise_rendering: bool=False):
+                     fixed_meta = None):
   """Process a dataset iterator and compute metrics."""
   params = state.optimizer.target['model']
   save_dir = save_dir / f'{step:08d}' / tag if save_dir else None
@@ -235,6 +235,8 @@ def process_iterator(tag: str,
     extra_images = None
     if tag == 'test':
       batch['metadata'] = sample_random_metadata(datasource, batch, step)
+    elif tag == 'fix_time':
+      batch['metadata'] = fixed_meta
 
     batch['metadata'] = evaluation.encode_metadata(
         model, jax_utils.unreplicate(params), batch['metadata'])
@@ -387,6 +389,40 @@ def main(argv):
     test_eval_ids = None
     test_eval_iter = None
 
+  if eval_config.fix_time_eval:
+    # create dataset for fixed time multi-view validation
+    time_id = train_eval_ids[eval_config.fixed_time_id]
+    fixed_meta = datasource.create_iterator([time_id], batch_size=0).__next__()['metadata']
+
+    cam_base = datasource.load_camera(time_id)
+    x,y,z = cam_base.position
+
+    r = np.sqrt(sum(a * a for a in [x,y,z]))
+    phi = np.arccos(z / r) # (180 - elevation)
+    theta = np.arccos(x / (r * np.sin(phi))) # azimuth
+    theta_change = np.pi / 4 / eval_config.num_fixed_time_views
+    
+    fix_time_cams = []
+    for i in range(eval_config.num_fixed_time_views):
+      theta_new = i * theta_change + theta
+
+      # These values of (x, y, z) will lie on the same sphere as the original camera.
+      x = r * np.cos(theta_new) * np.sin(phi)
+      y = r * np.sin(theta_new) * np.sin(phi)
+      z = r * np.cos(phi)
+
+      # new_cam = cam_base.look_at(position=np.array([x,y,z]),look_at=np.array([0,0,0]),up=np.array([0, 1, 0]))
+      new_cam = cam_base.look_at_kb(position=[x,y,z],target=[0,0,0])
+      fix_time_cams.append(new_cam)
+
+    fix_time_dataset = datasource.create_cameras_dataset(fix_time_cams)
+    fix_time_ids = [f'{x:03d}' for x in range(len(fix_time_cams))]
+    fix_time_iter = datasets.iterator_from_dataset(fix_time_dataset, batch_size=0)
+  else:
+    fix_time_ids = None
+    fix_time_iter = None
+    fixed_meta = None
+
   rng, key = random.split(rng)
   params = {}
   construct_nerf_func = models.construct_nerf if not train_config.use_decompose_nerf else models.construct_decompose_nerf
@@ -496,6 +532,20 @@ def main(argv):
                        save_dir=save_dir,
                        datasource=datasource,
                        model=model)
+
+    if fix_time_iter:
+      process_iterator(tag='fix_time',
+                       item_ids=fix_time_ids,
+                       iterator=fix_time_iter,
+                       state=state,
+                       rng=rng,
+                       step=step,
+                       render_fn=render_fn,
+                       summary_writer=summary_writer,
+                       save_dir=save_dir,
+                       datasource=datasource,
+                       model=model,
+                       fixed_meta=fixed_meta)
 
     if save_dir:
       delete_old_renders(renders_dir, eval_config.max_render_checkpoints)
