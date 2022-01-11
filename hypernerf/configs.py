@@ -177,12 +177,21 @@ class EvalConfig:
   # The number of test examples to evaluate.
   num_test_eval: Optional[int] = 10
   
-  # Evalution parameter for fixed time rotating camera experiments
+  # Evalution setting for fixed time rotating camera experiments
   fix_time_eval: bool = False
   # Number of views rendered for each fixed time frame
-  num_fixed_time_views: Optional[int] = 30
+  num_fixed_time_views: Optional[int] = 10
   # The time frame id used to render
   fixed_time_id: int = 0
+
+  # Evalution setting for fixed view varying time experiments
+  fix_view_eval: bool = False
+  # Number of views rendered for each fixed time frame
+  num_fixed_view_frames: Optional[int] = 10
+  # The view id used to render
+  fixed_view_id: int = 0
+  # Whether to use camera poses from training views
+  use_train_views: bool = False
 
   # normalise the rgb renderings
   normalise_rendering: bool = False

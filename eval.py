@@ -225,7 +225,7 @@ def process_iterator(tag: str,
                      save_dir: Optional[gpath.GPath],
                      datasource: datasets.DataSource,
                      model: models.NerfModel,
-                     fixed_meta = None):
+                     metas = None):
   """Process a dataset iterator and compute metrics."""
   params = state.optimizer.target['model']
   save_dir = save_dir / f'{step:08d}' / tag if save_dir else None
@@ -236,7 +236,9 @@ def process_iterator(tag: str,
     if tag == 'test':
       batch['metadata'] = sample_random_metadata(datasource, batch, step)
     elif tag == 'fix_time':
-      batch['metadata'] = fixed_meta
+      batch['metadata'] = metas
+    elif tag == 'fix_view':
+      batch['metadata'] = metas[i]
 
     batch['metadata'] = evaluation.encode_metadata(
         model, jax_utils.unreplicate(params), batch['metadata'])
@@ -368,19 +370,29 @@ def main(argv):
       use_camera_id=dummy_model.nerf_embed_key == 'camera',
       use_time=dummy_model.warp_embed_key == 'time')
 
-  # Get training IDs to evaluate.
-  train_eval_ids = utils.strided_subset(
-      datasource.train_ids, eval_config.num_train_eval) # returns eval_config.num_train_eval+1 evenly spaced samples
-  train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
-  val_eval_ids = utils.strided_subset(
-      datasource.val_ids, eval_config.num_val_eval)
+  if eval_config.num_train_eval > 0:
+    # Get training IDs to evaluate.
+    train_eval_ids = utils.strided_subset(
+        datasource.train_ids, eval_config.num_train_eval) # returns eval_config.num_train_eval+1 evenly spaced samples
+    train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
+  else:
+    train_eval_ids = train_eval_iter = None
+
+  if eval_config.num_val_eval > 0:
+    val_eval_ids = utils.strided_subset(
+        datasource.val_ids, eval_config.num_val_eval)
+  else:
+    val_eval_ids = None
   if val_eval_ids:
     val_eval_iter = datasource.create_iterator(val_eval_ids, batch_size=0)
   else:
     logging.warning('There are no validation examples.')
     val_eval_iter = None
 
-  test_cameras = datasource.load_test_cameras(count=eval_config.num_test_eval)
+  if eval_config.num_test_eval > 0:
+    test_cameras = datasource.load_test_cameras(count=eval_config.num_test_eval)
+  else:
+    test_cameras = None
   if test_cameras:
     test_dataset = datasource.create_cameras_dataset(test_cameras)
     test_eval_ids = [f'{x:03d}' for x in range(len(test_cameras))]
@@ -389,31 +401,44 @@ def main(argv):
     test_eval_ids = None
     test_eval_iter = None
 
+  # fix time varying value evaluation
   if eval_config.fix_time_eval:
     # create dataset for fixed time multi-view validation
-    time_id = train_eval_ids[eval_config.fixed_time_id]
-    fixed_meta = datasource.create_iterator([time_id], batch_size=0).__next__()['metadata']
+    time_id = datasource.train_ids[eval_config.fixed_time_id]
+    fix_time_meta = datasource.create_iterator([time_id], batch_size=0).__next__()['metadata']
 
-    cam_base = datasource.load_camera(time_id)
-    x,y,z = cam_base.position
+    if eval_config.use_train_views:
+      # use camera poses from training views
+      cam_ids = utils.strided_subset(
+        datasource.train_ids, eval_config.num_fixed_time_views)
 
-    r = np.sqrt(sum(a * a for a in [x,y,z]))
-    phi = np.arccos(z / r) # (180 - elevation)
-    theta = np.arccos(x / (r * np.sin(phi))) # azimuth
-    theta_change = np.pi / 4 / eval_config.num_fixed_time_views
-    
-    fix_time_cams = []
-    for i in range(eval_config.num_fixed_time_views):
-      theta_new = i * theta_change + theta
+      fix_time_cams = []
+      for cam_id in cam_ids:
+        fix_time_cams.append(datasource.load_camera(cam_id))
 
-      # These values of (x, y, z) will lie on the same sphere as the original camera.
-      x = r * np.cos(theta_new) * np.sin(phi)
-      y = r * np.sin(theta_new) * np.sin(phi)
-      z = r * np.cos(phi)
+    else:
+      # use generated camera poses
+      cam_base = datasource.load_camera(time_id)
+      x,y,z = cam_base.position
+      r = np.sqrt(sum(a * a for a in [x,y,z]))
+      phi = np.arccos(z / r) # (180 - elevation)
+      theta = np.arccos(x / (r * np.sin(phi))) # azimuth
+      theta_change = np.pi / 4 / eval_config.num_fixed_time_views
+      
+      fix_time_cams = []
+      for i in range(eval_config.num_fixed_time_views):
+        theta_new = i * theta_change + theta
 
-      # new_cam = cam_base.look_at(position=np.array([x,y,z]),look_at=np.array([0,0,0]),up=np.array([0, 1, 0]))
-      new_cam = cam_base.look_at_kb(position=[x,y,z],target=[0,0,0])
-      fix_time_cams.append(new_cam)
+        # These values of (x, y, z) will lie on the same sphere as the original camera.
+        x = r * np.cos(theta_new) * np.sin(phi)
+        y = r * np.sin(theta_new) * np.sin(phi)
+        z = r * np.cos(phi)
+
+        # new_cam = cam_base.look_at(position=np.array([x,y,z]),look_at=np.array([0,0,0]),up=np.array([0, 1, 0]))
+        new_cam = cam_base.look_at_kb(position=[x,y,z],target=[0,0,0])
+        fix_time_cams.append(new_cam)
+
+
 
     fix_time_dataset = datasource.create_cameras_dataset(fix_time_cams)
     fix_time_ids = [f'{x:03d}' for x in range(len(fix_time_cams))]
@@ -421,7 +446,29 @@ def main(argv):
   else:
     fix_time_ids = None
     fix_time_iter = None
-    fixed_meta = None
+    fix_time_meta = None
+
+  # fix view varying time evaluation
+  if eval_config.fix_view_eval:
+    # create dataset for fixed time multi-view validation
+    view_id = datasource.train_ids[eval_config.fixed_view_id]
+    fixed_camera = datasource.load_camera(view_id)
+    # get the time coordinate from training data
+    frame_ids = utils.strided_subset(
+      datasource.train_ids, eval_config.num_fixed_view_frames)
+    fix_view_cams = []
+    fix_view_metas = []
+    for i in range(eval_config.num_fixed_view_frames):
+      fix_view_cams.append(fixed_camera.copy())
+      fix_view_metas.append(datasource.create_iterator([frame_ids[i]], batch_size=0).__next__()['metadata'])
+
+    fix_view_dataset = datasource.create_cameras_dataset(fix_view_cams)
+    fix_view_ids = frame_ids
+    fix_view_iter = datasets.iterator_from_dataset(fix_view_dataset, batch_size=0)
+  else:
+    fix_view_ids = None
+    fix_view_iter = None
+    fix_view_metas = None
 
   rng, key = random.split(rng)
   params = {}
@@ -507,18 +554,18 @@ def main(argv):
           save_dir=save_dir,
           datasource=datasource,
           model=model)
-
-    process_iterator(tag='train',
-                     item_ids=train_eval_ids,
-                     iterator=train_eval_iter,
-                     state=state,
-                     rng=rng,
-                     step=step,
-                     render_fn=render_fn,
-                     summary_writer=summary_writer,
-                     save_dir=save_dir,
-                     datasource=datasource,
-                     model=model)
+    if train_eval_iter:
+      process_iterator(tag='train',
+                      item_ids=train_eval_ids,
+                      iterator=train_eval_iter,
+                      state=state,
+                      rng=rng,
+                      step=step,
+                      render_fn=render_fn,
+                      summary_writer=summary_writer,
+                      save_dir=save_dir,
+                      datasource=datasource,
+                      model=model)
 
     if test_eval_iter:
       process_iterator(tag='test',
@@ -545,7 +592,21 @@ def main(argv):
                        save_dir=save_dir,
                        datasource=datasource,
                        model=model,
-                       fixed_meta=fixed_meta)
+                       metas=fix_time_meta)
+
+    if fix_view_iter:
+      process_iterator(tag='fix_view',
+                       item_ids=fix_view_ids,
+                       iterator=fix_view_iter,
+                       state=state,
+                       rng=rng,
+                       step=step,
+                       render_fn=render_fn,
+                       summary_writer=summary_writer,
+                       save_dir=save_dir,
+                       datasource=datasource,
+                       model=model,
+                       metas=fix_view_metas)
 
     if save_dir:
       delete_old_renders(renders_dir, eval_config.max_render_checkpoints)
