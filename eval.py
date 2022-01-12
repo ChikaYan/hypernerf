@@ -36,7 +36,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_hub as tf_hub
 import pdb
-
+import glob
+import imageio
 
 from hypernerf import configs
 from hypernerf import datasets
@@ -140,14 +141,14 @@ def plot_images(*,
     save_dir.mkdir(parents=True, exist_ok=True)
     image_utils.save_image(save_dir / f'rgb_{item_id}.png',
                            image_utils.image_to_uint8(rgb))
-    image_utils.save_image(save_dir / f'depth_expected_viz_{item_id}.png',
-                           image_utils.image_to_uint8(depth_exp_viz))
-    image_utils.save_depth(save_dir / f'depth_expected_{item_id}.png',
-                           depth_exp)
-    image_utils.save_image(save_dir / f'depth_median_viz_{item_id}.png',
-                           image_utils.image_to_uint8(depth_med_viz))
-    image_utils.save_depth(save_dir / f'depth_median_{item_id}.png',
-                           depth_med)
+    # image_utils.save_image(save_dir / f'depth_expected_viz_{item_id}.png',
+    #                        image_utils.image_to_uint8(depth_exp_viz))
+    # image_utils.save_depth(save_dir / f'depth_expected_{item_id}.png',
+    #                        depth_exp)
+    # image_utils.save_image(save_dir / f'depth_median_viz_{item_id}.png',
+    #                        image_utils.image_to_uint8(depth_med_viz))
+    # image_utils.save_depth(save_dir / f'depth_median_{item_id}.png',
+    #                        depth_med)
 
   summary_writer.image(f'rgb/{tag}/{item_id}', rgb, step)
   summary_writer.image(f'depth-expected/{tag}/{item_id}', depth_exp_viz, step)
@@ -274,6 +275,13 @@ def process_iterator(tag: str,
       summary_writer.scalar(tag=f'metrics-eval/{meter_name}/{tag}',
                             value=meter.reduce('mean'),
                             step=step)
+
+  # render a video of rgb output
+  if save_dir:
+    with imageio.get_writer(f'{save_dir}/{tag}/rgb_video.gif', fps=5, mode='I') as writer:
+      for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/rgb*.png')):
+        image = imageio.imread(rgb_path)
+        writer.append_data(image)
 
 
 def delete_old_renders(render_dir, max_renders):

@@ -329,10 +329,18 @@ def parallel_tree_map(f, tree, **kwargs):
 
 def strided_subset(sequence, count):
   """Returns a strided subset of a list."""
-  if count:
-    stride = max(1, len(sequence) // count)
-    return sequence[::stride]
-  return sequence
+  if count < 0:
+    return sequence
+  if count == 0:
+    return []
+
+  ids = np.linspace(0, len(sequence) -1, count).astype(int)
+  return [sequence[i] for i in ids]
+  
+  # if count:
+  #   stride = max(1, len(sequence) // count)
+  #   return sequence[::stride]
+  # return sequence
 
 
 def tree_collate(list_of_pytrees):
