@@ -74,3 +74,6 @@ data/
 log/
 log-archive/
 sbtach_log/
+
+machine.file.*
+slurm-*.out
