@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "train.py",
             "console": "integratedTerminal",
-            "args": ["--base_folder", "log/debug/test", "--gin_bindings=\"data_dir='./data/kubric_cone_v2/'\"", "--gin_configs", "configs/test_local.gin", "--debug"]
+            "args": ["--base_folder", "log/debug/test", "--gin_bindings=\"data_dir='./data/kubric_car/'\"", "--gin_configs", "configs/test_local.gin", "--debug"]
         },
         {
             "name": "train_decompose",
@@ -38,12 +38,20 @@
             "args": ["--base_folder", "log/debug/pure_static", "--gin_bindings=\"data_dir='./data/kubric_car_static/'\"", "--gin_configs", "configs/test_decompose.gin", "--debug"]
         },
         {
-            "name": "debug_nan",
+            "name": "eval_original_fix_time",
             "type": "python",
             "request": "launch",
-            "program": "train.py",
+            "program": "eval.py",
             "console": "integratedTerminal",
-            "args": ["--base_folder", "log/debug/kubric_blendw_loss", "--gin_bindings=\"data_dir='./data/kubric_movid_2/'\"", "--gin_configs", "configs/test_decompose.gin", "--debug"]
+            "args": ["--base_folder", "log/kubric_car/original_gt_cam", "--gin_bindings=\"data_dir='./data/kubric_car/'\"", "--gin_configs", "configs/eval_local_fix_time.gin", "--debug"]
+        },
+        {
+            "name": "eval_original_fix_view",
+            "type": "python",
+            "request": "launch",
+            "program": "eval.py",
+            "console": "integratedTerminal",
+            "args": ["--base_folder", "log/kubric_car/original_gt_cam", "--gin_bindings=\"data_dir='./data/kubric_car/'\"", "--gin_configs", "configs/eval_local_fix_view.gin", "--debug"]
         },
         {
             "name": "eval_decompose",
