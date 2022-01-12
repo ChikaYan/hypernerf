@@ -466,7 +466,7 @@ def main(argv):
       datasource.train_ids, eval_config.num_fixed_view_frames)
     fix_view_cams = []
     fix_view_metas = []
-    for i in range(eval_config.num_fixed_view_frames):
+    for i in range(len(frame_ids)):
       fix_view_cams.append(fixed_camera.copy())
       fix_view_metas.append(datasource.create_iterator([frame_ids[i]], batch_size=0).__next__()['metadata'])
 
