@@ -378,24 +378,20 @@ def main(argv):
       use_camera_id=dummy_model.nerf_embed_key == 'camera',
       use_time=dummy_model.warp_embed_key == 'time')
 
-  if eval_config.num_train_eval > 0:
     # Get training IDs to evaluate.
-    train_eval_ids = utils.strided_subset(
-        datasource.train_ids, eval_config.num_train_eval) # returns eval_config.num_train_eval+1 evenly spaced samples
+  train_eval_ids = utils.strided_subset(
+      datasource.train_ids, eval_config.num_train_eval) # returns eval_config.num_train_eval+1 evenly spaced samples
+  if train_eval_ids:
     train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
   else:
-    train_eval_ids = train_eval_iter = None
+    train_eval_iter = None
 
-  if eval_config.num_val_eval > 0:
-    val_eval_ids = utils.strided_subset(
-        datasource.val_ids, eval_config.num_val_eval)
-  else:
-    val_eval_ids = None
+  val_eval_ids = utils.strided_subset(
+      datasource.val_ids, eval_config.num_val_eval)
   if val_eval_ids:
     val_eval_iter = datasource.create_iterator(val_eval_ids, batch_size=0)
   else:
-    logging.warning('There are no validation examples.')
-    val_eval_iter = None
+    val_eval_ids = None
 
   if eval_config.num_test_eval > 0:
     test_cameras = datasource.load_test_cameras(count=eval_config.num_test_eval)
