@@ -391,7 +391,7 @@ def main(argv):
   if val_eval_ids:
     val_eval_iter = datasource.create_iterator(val_eval_ids, batch_size=0)
   else:
-    val_eval_ids = None
+    val_eval_iter = None
 
   if eval_config.num_test_eval > 0:
     test_cameras = datasource.load_test_cameras(count=eval_config.num_test_eval)
