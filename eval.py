@@ -62,6 +62,7 @@ FLAGS = flags.FLAGS
 
 config.update('jax_log_compiles', True)
 
+KEEP_GIF_ONLY = True
 
 def compute_multiscale_ssim(image1: jnp.ndarray, image2: jnp.ndarray):
   """Compute the multiscale SSIM metric."""
@@ -282,6 +283,9 @@ def process_iterator(tag: str,
       for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/rgb*.png')):
         image = imageio.imread(rgb_path)
         writer.append_data(image)
+    if KEEP_GIF_ONLY:
+      for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/rgb*.png')):
+        os.remove(rgb_path)
 
 
 def delete_old_renders(render_dir, max_renders):
@@ -320,6 +324,9 @@ def main(argv):
   exp_config = configs.ExperimentConfig()
   train_config = configs.TrainConfig()
   eval_config = configs.EvalConfig()
+
+  global KEEP_GIF_ONLY
+  KEEP_GIF_ONLY = eval_config.keep_gif_only
 
   # Get directory information.
   exp_dir = gpath.GPath(FLAGS.base_folder)

@@ -156,6 +156,8 @@ class EvalConfig:
   eval_once: bool = False
   # If True save the predicted images to persistent storage.
   save_output: bool = True
+  # If True keep only the gif and remove the images
+  keep_gif_only: bool = True
   # The evaluation batch size.
   chunk: int = 8192
   # Max render checkpoints. The renders will rotate after this many.
