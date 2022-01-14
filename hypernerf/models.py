@@ -1607,8 +1607,9 @@ class DecomposeNerfModel(NerfModel):
 
     # training static only, use blendw = 0
     cond = 'freeze_dynamic' in extra_params.keys() and extra_params['freeze_dynamic']
-    blendw = jax.lax.cond(cond, lambda: jnp.zeros_like(blendw), lambda: blendw)
+    blendw = jax.lax.cond(cond, lambda: jnp.ones_like(blendw) / 2., lambda: blendw)
 
+    # blendw = jnp.zeros_like(blendw)
 
     if self.use_blendw_loss:
       out['blendw'] = blendw
