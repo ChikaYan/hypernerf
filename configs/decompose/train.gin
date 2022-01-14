@@ -5,6 +5,7 @@ max_steps = 100000
 
 TrainConfig.use_decompose_nerf = True
 
+StaticNerfModel.use_viewdirs = False
 StaticNerfModel.num_coarse_samples = 64
 StaticNerfModel.num_fine_samples = 64
 StaticNerfModel.use_viewdirs = True
@@ -12,7 +13,7 @@ StaticNerfModel.use_stratified_sampling = True
 StaticNerfModel.norm_type = 'none'
 StaticNerfModel.activation = @jax.nn.relu
 
-
+DecomposeNerfModel.use_viewdirs = False
 DecomposeNerfModel.num_coarse_samples = 64
 DecomposeNerfModel.num_fine_samples = 64
 DecomposeNerfModel.use_viewdirs = True
@@ -28,7 +29,7 @@ DecomposeNerfModel.use_warp = True
 DecomposeNerfModel.use_blendw_loss = True
 DecomposeNerfModel.blendw_out_depth = 4
 
-TrainConfig.print_every = 10
+TrainConfig.print_every = 100
 TrainConfig.log_every = 100
 TrainConfig.histogram_every = 100
 TrainConfig.save_every = 1000
@@ -38,9 +39,20 @@ TrainConfig.bg_decompose_loss_weight = 1.0
 TrainConfig.blendw_loss_weight = 0.0001
 
 # initialize static model for some iterations first
-TrainConfig.init_static_steps = 10000
+TrainConfig.init_static_steps = 1000
 
-EvalConfig.save_output = False
-EvalConfig.num_test_eval = 1
+EvalConfig.eval_once = True
+EvalConfig.save_output = True
+EvalConfig.num_train_eval = -1
+EvalConfig.num_val_eval = -1
+EvalConfig.num_test_eval = 10
+EvalConfig.normalise_rendering = False
+EvalConfig.use_tsne = False
 
-NerfiesDataSource.use_gt_camera = True
+EvalConfig.fix_time_eval = True
+EvalConfig.num_fixed_time_views = -1
+EvalConfig.use_train_views = True
+EvalConfig.fix_view_eval = True
+EvalConfig.num_fixed_view_frames = -1
+
+NerfiesDataSource.use_gt_camera = False
