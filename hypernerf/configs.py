@@ -142,6 +142,9 @@ class TrainConfig:
   # Initialize the static model for several iterations first
   # During this, dynamic model would be frozen
   init_static_steps: int = 0
+  # Fix blendw to certain values for a fixed number of iterations
+  fix_blendw_steps: int = 0
+  fix_blendw_value: float = 0.25
 
   # Use provided dynmaic object mask to separately train the dynamic and static component
   use_mask_sep_train: bool = False

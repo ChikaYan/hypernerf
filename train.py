@@ -301,7 +301,10 @@ def main(argv):
       nerf_alpha=nerf_alpha_sched(0),
       warp_alpha=warp_alpha_sched(0),
       hyper_alpha=hyper_alpha_sched(0),
-      hyper_sheet_alpha=hyper_sheet_alpha_sched(0))
+      hyper_sheet_alpha=hyper_sheet_alpha_sched(0),
+      freeze_blendw=jnp.array([False]),
+      freeze_blendw_value=jnp.array([train_config.fix_blendw_value])
+      )
   scalar_params = training.ScalarParams(
       learning_rate=learning_rate_sched(0),
       elastic_loss_weight=elastic_loss_weight_sched(0),
@@ -389,8 +392,10 @@ def main(argv):
     state = state.replace(nerf_alpha=nerf_alpha,
                           warp_alpha=warp_alpha,
                           hyper_alpha=hyper_alpha,
-                          hyper_sheet_alpha=hyper_sheet_alpha)
+                          hyper_sheet_alpha=hyper_sheet_alpha,
+                          freeze_blendw=jnp.array([step<train_config.fix_blendw_steps]))
 
+    # TODO: put freeze_static and freeze_dynamic into state.extra_params
     freeze_static = False
     freeze_dynamic = step < train_config.init_static_steps
 

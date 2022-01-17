@@ -1605,10 +1605,9 @@ class DecomposeNerfModel(NerfModel):
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
 
-    # training static only, use blendw = 0
-    cond = 'freeze_dynamic' in extra_params.keys() and extra_params['freeze_dynamic']
-    blendw = jax.lax.cond(cond, lambda: jnp.ones_like(blendw) / 2., lambda: blendw)
-
+    cond = extra_params['freeze_blendw']
+    blendw = jax.lax.cond(cond, lambda: jnp.ones_like(blendw) * extra_params['freeze_blendw_value'], lambda: blendw)
+    blendw_rev = jnp.ones_like(blendw) - blendw
     # blendw = jnp.zeros_like(blendw)
 
     if self.use_blendw_loss:
@@ -1616,29 +1615,46 @@ class DecomposeNerfModel(NerfModel):
 
     if self.render_mode == 'both':
       # combine static and dynamic nerf outputs
-      rgb = rgb * blendw[...,None] + s_rgb * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
-      sigma = sigma * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
+      rgb = rgb * blendw[...,None] + s_rgb * blendw_rev[...,None]
+      sigma = sigma * blendw + s_sigma * blendw_rev
     elif self.render_mode == 'dynamic':
       # render dynamic component only for evaluation
-      rgb = rgb * blendw[...,None] + jnp.zeros_like(s_rgb) * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
-      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * (jnp.ones_like(blendw) - blendw)
+      rgb = rgb * blendw[...,None] + jnp.zeros_like(s_rgb) * blendw_rev[...,None]
+      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * blendw_rev
+    elif self.render_mode == 'dynamic_full':
+      # render dynamic component fully, ignoring the value of blendw
+      rgb = rgb 
+      sigma = sigma
+    elif self.render_mode == 'dynamic_valid':
+      # render valid dynamic component
+      # background would just be green
+      blendw[blendw > 0.01] = 1.
+      blendw[blendw <= 0.01] = 0.
+      blendw_rev = jnp.ones_like(blendw) - blendw
+      s_rgb = jnp.ones_like(s_rgb) * jnp.array([[[0.,.5,0.]]])
+      rgb = rgb * blendw[...,None] + s_rgb * blendw_rev[...,None]
+      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * blendw_rev
     elif self.render_mode == 'static':
       # render static component only for evaluation
-      rgb = jnp.zeros_like(rgb) * blendw[...,None] + s_rgb * (jnp.ones_like(blendw[...,None]) - blendw[...,None])
-      sigma = jnp.zeros_like(sigma) * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
+      rgb = jnp.zeros_like(rgb) * blendw[...,None] + s_rgb * blendw_rev[...,None]
+      sigma = jnp.zeros_like(sigma) * blendw + s_sigma * blendw_rev
+    elif self.render_mode == 'static_full':
+      # render static component fully, ignoring the value of blendw
+      rgb = s_rgb 
+      sigma = s_sigma
     elif self.render_mode == 'blendw':
       # render blending weights
       rgb = jnp.ones_like(rgb) * blendw[...,None]
-      sigma = sigma * blendw + s_sigma * (jnp.ones_like(blendw) - blendw)
+      sigma = sigma * blendw + s_sigma * blendw_rev
     elif self.render_mode == 'deformation':
       # render the amount of deformation in dynamic component
       # need to ensure range [0,1]. TODO: better normalization
       rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
-      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * (jnp.ones_like(blendw) - blendw)
+      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * blendw_rev
     elif self.render_mode == 'time':
       # render the warped time coordinate
       rgb = jnp.clip((warped_points[...,3:]), 0, 1)
-      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * (jnp.ones_like(blendw) - blendw)
+      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * blendw_rev
     else:
       raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
 
@@ -1855,6 +1871,8 @@ def construct_decompose_nerf(key, batch_size: int, embeddings_dict: Dict[str, in
       'warp_alpha': 0.0,
       'hyper_alpha': 0.0,
       'hyper_sheet_alpha': 0.0,
+      'freeze_blendw': False,
+      'freeze_blendw_value': 0.0
   }
 
   key, key1, key2 = random.split(key, 3)
