@@ -3,9 +3,9 @@ include 'configs/decompose/train.gin'
 eval_batch_size = 1024
 
 # render 'dynamic', 'static', 'both', 'blendw' or 'deformation' component 
-render_mode = 'static_full'
+render_mode = 'blendw'
 DecomposeNerfModel.render_mode = %render_mode
-EvalConfig.subname = 'static-c'
+EvalConfig.subname = 'blendw_c'
 
 EvalConfig.num_train_eval = 1
 EvalConfig.num_val_eval = 1
