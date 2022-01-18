@@ -11,5 +11,5 @@ EvalConfig.num_test_eval = 0
 
 EvalConfig.fix_time_eval = True
 EvalConfig.save_output = True
-EvalConfig.num_fixed_time_views = 10
+EvalConfig.num_fixed_time_views = -1
 EvalConfig.use_train_views = True

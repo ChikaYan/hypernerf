@@ -4,6 +4,7 @@ include 'configs/test_local.gin'
 render_mode = 'deformation'
 NerfModel.render_mode = %render_mode
 EvalConfig.subname = %render_mode
-EvalConfig.num_test_eval = 1
+EvalConfig.num_test_eval = 0
 EvalConfig.normalise_rendering = True
 EvalConfig.use_tsne = False
+EvalConfig.save_output = True
