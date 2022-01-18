@@ -272,9 +272,9 @@ def main(argv):
       train_config.elastic_loss_weight_schedule)
 
 
-  if train_config.init_static_steps > 0:
+  if train_config.freeze_dynamic_steps > 0:
     if not train_config.use_decompose_nerf:
-      raise NotImplementedError('init_static_steps can only be set when using decompose nerf!')
+      raise NotImplementedError('freeze_dynamic_steps can only be set when using decompose nerf!')
 
     # seperate the optimizer for static and dynamic components 
     static_traversal = traverse_util.ModelParamTraversal(lambda path, _: 'static_nerf' in path)
@@ -302,6 +302,8 @@ def main(argv):
       warp_alpha=warp_alpha_sched(0),
       hyper_alpha=hyper_alpha_sched(0),
       hyper_sheet_alpha=hyper_sheet_alpha_sched(0),
+      freeze_static=False,
+      freeze_dynamic=False,
       freeze_blendw=False,
       freeze_blendw_value=train_config.fix_blendw_value
       )
@@ -348,7 +350,7 @@ def main(argv):
         train_step,
         axis_name='batch',
         # rng_key, state, batch, scalar_params.
-        in_axes=(0, 0, 0, None, None, None) 
+        in_axes=(0, 0, 0, None) 
     )
   else:
     ptrain_step = jax.pmap( # jax parallel map
@@ -356,7 +358,7 @@ def main(argv):
         axis_name='batch', # assigns a hashable name to the axis, which can be later referred to by other functions
         devices=devices,
         # rng_key, state, batch, scalar_params.
-        in_axes=(0, 0, 0, None, None, None), # in_axes is used to align and pad the inputs to match dimensions
+        in_axes=(0, 0, 0, None), # in_axes is used to align and pad the inputs to match dimensions
         # Treat use_elastic_loss as compile-time static.
         donate_argnums=(2,),  # Donate the 'batch' argument -- arguments that are no longer needed after computation can be donated to reduce memory requirement
     )
@@ -389,16 +391,20 @@ def main(argv):
     hyper_alpha = jax_utils.replicate(hyper_alpha_sched(step), devices)
     hyper_sheet_alpha = jax_utils.replicate(
         hyper_sheet_alpha_sched(step), devices)
+    freeze_static = jax_utils.replicate(False)
+    freeze_dynamic = jax_utils.replicate(step<train_config.freeze_dynamic_steps)
     freeze_blendw = jax_utils.replicate(step<train_config.fix_blendw_steps)
     state = state.replace(nerf_alpha=nerf_alpha,
                           warp_alpha=warp_alpha,
                           hyper_alpha=hyper_alpha,
                           hyper_sheet_alpha=hyper_sheet_alpha,
+                          freeze_static=freeze_static,
+                          freeze_dynamic=freeze_dynamic,
                           freeze_blendw=freeze_blendw)
 
-    # TODO: put freeze_static and freeze_dynamic into state.extra_params
-    freeze_static = False
-    freeze_dynamic = step < train_config.init_static_steps
+    # # TODO: put freeze_static and freeze_dynamic into state.extra_params
+    # freeze_static = False
+    # freeze_dynamic = step < train_config.freeze_dynamic_steps
 
     if train_config.use_mask_sep_train:
       # check the mask in the batch to disable training of the opposite component
@@ -414,7 +420,7 @@ def main(argv):
 
     with time_tracker.record_time('train_step'):
       state, stats, keys, model_out = ptrain_step(
-          keys, state, batch, scalar_params, freeze_static, freeze_dynamic)
+          keys, state, batch, scalar_params)
       time_tracker.toc('total')
 
     if step % train_config.print_every == 0 and jax.process_index() == 0:

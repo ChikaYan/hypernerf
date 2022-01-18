@@ -237,8 +237,6 @@ def train_step(model: models.NerfModel,
                state: model_utils.TrainState,
                batch: Dict[str, Any],
                scalar_params: ScalarParams,
-               freeze_static: bool = False,
-               freeze_dynamic: bool = False,
                disable_hyper_grads: bool = False,
                grad_max_val: float = 0.0,
                grad_max_norm: float = 0.0,
@@ -451,8 +449,8 @@ def train_step(model: models.NerfModel,
     new_optimizer = optimizer.apply_gradient(
         grad, 
         hyper_params=[
-          jax.lax.cond(freeze_static, freeze_train, enable_train, hparams[0]),
-          jax.lax.cond(freeze_dynamic, freeze_train, enable_train, hparams[1])
+          jax.lax.cond(state.extra_params['freeze_static'], freeze_train, enable_train, hparams[0]),
+          jax.lax.cond(state.extra_params['freeze_dynamic'], freeze_train, enable_train, hparams[1])
     ])
   else:
     new_optimizer = optimizer.apply_gradient(

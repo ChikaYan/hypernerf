@@ -141,7 +141,7 @@ class TrainConfig:
 
   # Initialize the static model for several iterations first
   # During this, dynamic model would be frozen
-  init_static_steps: int = 0
+  freeze_dynamic_steps: int = 0
   # Fix blendw to certain values for a fixed number of iterations
   fix_blendw_steps: int = 0
   fix_blendw_value: float = 0.25
