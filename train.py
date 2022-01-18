@@ -389,11 +389,12 @@ def main(argv):
     hyper_alpha = jax_utils.replicate(hyper_alpha_sched(step), devices)
     hyper_sheet_alpha = jax_utils.replicate(
         hyper_sheet_alpha_sched(step), devices)
+    freeze_blendw = jax_utils.replicate(jnp.array([step<train_config.fix_blendw_steps]))
     state = state.replace(nerf_alpha=nerf_alpha,
                           warp_alpha=warp_alpha,
                           hyper_alpha=hyper_alpha,
                           hyper_sheet_alpha=hyper_sheet_alpha,
-                          freeze_blendw=jnp.array([step<train_config.fix_blendw_steps]))
+                          freeze_blendw=freeze_blendw)
 
     # TODO: put freeze_static and freeze_dynamic into state.extra_params
     freeze_static = False
