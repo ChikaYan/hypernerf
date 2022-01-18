@@ -302,8 +302,8 @@ def main(argv):
       warp_alpha=warp_alpha_sched(0),
       hyper_alpha=hyper_alpha_sched(0),
       hyper_sheet_alpha=hyper_sheet_alpha_sched(0),
-      freeze_blendw=jnp.array([False]),
-      freeze_blendw_value=jnp.array([train_config.fix_blendw_value])
+      freeze_blendw=False,
+      freeze_blendw_value=train_config.fix_blendw_value
       )
   scalar_params = training.ScalarParams(
       learning_rate=learning_rate_sched(0),
@@ -389,7 +389,7 @@ def main(argv):
     hyper_alpha = jax_utils.replicate(hyper_alpha_sched(step), devices)
     hyper_sheet_alpha = jax_utils.replicate(
         hyper_sheet_alpha_sched(step), devices)
-    freeze_blendw = jax_utils.replicate(jnp.array([step<train_config.fix_blendw_steps]))
+    freeze_blendw = jax_utils.replicate(step<train_config.fix_blendw_steps)
     state = state.replace(nerf_alpha=nerf_alpha,
                           warp_alpha=warp_alpha,
                           hyper_alpha=hyper_alpha,
