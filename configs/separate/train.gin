@@ -21,6 +21,6 @@ TrainConfig.bg_decompose_loss_weight = 1.0
 TrainConfig.blendw_loss_weight = 0.0001
 
 # initialize static model for some iterations first
-TrainConfig.init_static_steps = 1
+TrainConfig.freeze_dynamic_steps = 1
 
 
