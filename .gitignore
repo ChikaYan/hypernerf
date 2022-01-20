@@ -77,3 +77,5 @@ sbtach_log/
 
 machine.file.*
 slurm-*.out
+
+slurm_script/

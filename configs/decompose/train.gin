@@ -1,7 +1,7 @@
 include 'configs/test_local.gin'
 
 image_scale = 2
-max_steps = 100000
+max_steps = 10000
 
 TrainConfig.use_decompose_nerf = True
 
@@ -36,11 +36,13 @@ TrainConfig.save_every = 1000
 TrainConfig.use_background_loss = False
 TrainConfig.use_bg_decompose_loss = False
 TrainConfig.bg_decompose_loss_weight = 1.0
-TrainConfig.blendw_loss_weight = 0.001
+TrainConfig.blendw_loss_weight = 0.0001
 
 # initialize static model for some iterations first
-TrainConfig.fix_blendw_steps = 10000
-TrainConfig.fix_blendw_value = 0.2
+TrainConfig.fix_blendw_steps = 5000
+TrainConfig.fix_blendw_value = 0.4
+
+DecomposeNerfModel.extra_renders = ('static', 'dynamic', 'blendw')
 
 EvalConfig.eval_once = True
 EvalConfig.save_output = True

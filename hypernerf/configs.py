@@ -54,6 +54,9 @@ class ExperimentConfig:
   # The datasource class.
   datasource_cls: Callable[..., datasets.DataSource] = gin.REQUIRED
 
+  # The rendering mode. Supported types can be found in types.RENDER_MODE
+  render_mode: str = 'regular'
+
 
 @gin.configurable()
 @dataclasses.dataclass
@@ -202,3 +205,6 @@ class EvalConfig:
   normalise_rendering: bool = False
   # use TSNE to map higher dimension RGB return to 3D
   use_tsne: bool = False
+
+  # Runtime evaluation for every n iteration 
+  niter_runtime_eval: int = 1000

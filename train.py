@@ -16,8 +16,7 @@
 """Training script for Nerf."""
 
 import functools
-from typing import Dict, Union
-
+from typing import Any, Dict, Union, Optional, Sequence
 from absl import app
 from absl import flags
 from absl import logging
@@ -40,10 +39,13 @@ from hypernerf import configs
 from hypernerf import datasets
 from hypernerf import gpath
 from hypernerf import model_utils
+from hypernerf import image_utils
 from hypernerf import models
 from hypernerf import schedules
 from hypernerf import training
 from hypernerf import utils
+from hypernerf import types
+from hypernerf import evaluation
 
 flags.DEFINE_enum('mode', None, ['jax_cpu', 'jax_gpu', 'jax_tpu'],
                   'Distributed strategy approach.')
@@ -162,6 +164,9 @@ def main(argv):
   # Load configurations.
   exp_config = configs.ExperimentConfig()
   train_config = configs.TrainConfig()
+  eval_config = configs.EvalConfig()
+
+  # assert exp_config.render_mode in types.RENDER_MODE.keys(), f"render mode {exp_config.render_mode} not recognized!"
 
   # add a few more steps to run for debug
   if FLAGS.debug:
@@ -179,6 +184,11 @@ def main(argv):
     exp_dir = exp_dir / exp_config.subname
   summary_dir = exp_dir / 'summaries' / 'train'
   checkpoint_dir = exp_dir / 'checkpoints'
+
+  renders_dir = exp_dir / f'renders-runtime'
+  logging.info('\trenders_dir = %s', renders_dir)
+  if not renders_dir.exists():
+    renders_dir.mkdir(parents=True, exist_ok=True)
 
   # Log and create directories if this is the main process.
   if jax.process_index() == 0:
@@ -391,6 +401,7 @@ def main(argv):
     hyper_alpha = jax_utils.replicate(hyper_alpha_sched(step), devices)
     hyper_sheet_alpha = jax_utils.replicate(
         hyper_sheet_alpha_sched(step), devices)
+    # render_mode = jax_utils.replicate(types.RENDER_MODE[exp_config.render_mode])
     freeze_static = jax_utils.replicate(False)
     freeze_dynamic = jax_utils.replicate(step<train_config.freeze_dynamic_steps)
     freeze_blendw = jax_utils.replicate(step<train_config.fix_blendw_steps)
@@ -398,13 +409,10 @@ def main(argv):
                           warp_alpha=warp_alpha,
                           hyper_alpha=hyper_alpha,
                           hyper_sheet_alpha=hyper_sheet_alpha,
+                          # render_mode=render_mode,
                           freeze_static=freeze_static,
                           freeze_dynamic=freeze_dynamic,
                           freeze_blendw=freeze_blendw)
-
-    # # TODO: put freeze_static and freeze_dynamic into state.extra_params
-    # freeze_static = False
-    # freeze_dynamic = step < train_config.freeze_dynamic_steps
 
     if train_config.use_mask_sep_train:
       # check the mask in the batch to disable training of the opposite component
@@ -455,8 +463,110 @@ def main(argv):
 
     time_tracker.tic('data', 'total')
 
+    # if False:
+    if step % eval_config.niter_runtime_eval == 0 and jax.process_index() == 0:
+      # do a quick evaluation render on train
+      train_eval_ids = utils.strided_subset(
+          datasource.train_ids, 1) 
+      train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
+
+      def _model_fn(key_0, key_1, params, rays_dict, extra_params):
+        out = model.apply({'params': params},
+                          rays_dict,
+                          extra_params=extra_params,
+                          metadata_encoded=True,
+                          rngs={
+                              'coarse': key_0,
+                              'fine': key_1
+                          },
+                          mutable=False)
+        return jax.lax.all_gather(out, axis_name='batch')
+
+      if FLAGS.debug:
+        # vmap version for debugging
+        pmodel_fn = jax.vmap(
+            _model_fn,
+            in_axes=(0, 0, 0, 0, 0),
+            axis_name='batch',
+        )
+      else:
+        pmodel_fn = jax.pmap(
+            _model_fn,
+            in_axes=(0, 0, 0, 0, 0), 
+            devices=devices,
+            axis_name='batch',
+        )
+
+      render_fn = functools.partial(evaluation.render_image,
+                                    model_fn=pmodel_fn,
+                                    device_count=n_local_devices,
+                                    chunk=eval_config.chunk,
+                                    normalise_rendering=False,
+                                    use_tsne=False)
+
+      save_dir = renders_dir
+      
+      extra_render_tags = model.extra_renders if train_config.use_decompose_nerf else None
+      process_iterator(tag='runtime_eval',
+              item_ids=train_eval_ids,
+              iterator=train_eval_iter,
+              state=state,
+              rng=rng,
+              step=step,
+              render_fn=render_fn,
+              save_dir=save_dir,
+              model=model,
+              extra_render_tags=extra_render_tags)
+
   if train_config.max_steps % train_config.save_every != 0:
     training.save_checkpoint(checkpoint_dir, state, keep=10)
+
+  
+def process_iterator(tag: str,
+                     item_ids: Sequence[str],
+                     iterator,
+                     rng: types.PRNGKey,
+                     state: model_utils.TrainState,
+                     step: int,
+                     render_fn: Any,
+                     save_dir: gpath.GPath,
+                     model: models.NerfModel,
+                     extra_render_tags: Optional[tuple]):
+  """Process a dataset iterator and compute metrics."""
+  params = state.optimizer.target['model']
+  save_dir = save_dir / f'{step:08d}' / tag
+  for i, (item_id, batch) in enumerate(zip(item_ids, iterator)):
+    logging.info('[%s:%d/%d] Processing %s ', tag, i+1, len(item_ids), item_id)
+
+    batch['metadata'] = evaluation.encode_metadata(
+        model, jax_utils.unreplicate(params), batch['metadata'])
+    model_out = render_fn(state, batch, rng=rng)
+    plot_images(
+        tag=tag,
+        item_id=item_id,
+        model_out=model_out,
+        save_dir=save_dir,
+        extra_render_tags=extra_render_tags)
+
+
+def plot_images(tag: str,
+                item_id: str,
+                model_out: Any,
+                save_dir: gpath.GPath,
+                extra_render_tags=None):
+  """Process and plot a single batch."""
+  item_id = item_id.replace('/', '_')
+  rgb = model_out['rgb'][..., :3]
+
+  save_dir = save_dir / tag
+  save_dir.mkdir(parents=True, exist_ok=True)
+  image_utils.save_image(save_dir / f'regular_{item_id}.png',
+                          image_utils.image_to_uint8(rgb))
+
+  for extra_tag in extra_render_tags:
+    image_utils.save_image(save_dir / f'{extra_tag}_{item_id}.png',
+                          image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
+
 
 
 if __name__ == '__main__':

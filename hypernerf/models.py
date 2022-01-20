@@ -1149,6 +1149,9 @@ class DecomposeNerfModel(NerfModel):
   # Evaluation render configs
   render_mode: str = 'both'
 
+  # Addition render modes options that will be included in the output for evaluation purpose
+  extra_renders: tuple = ()
+
   # blending weight regularization loss
   use_blendw_loss: bool = True
   # where to output blendw. -1 means outputting together with density (last layer)
@@ -1526,6 +1529,57 @@ class DecomposeNerfModel(NerfModel):
     return blendw
 
 
+  def blend_results(self, render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points):
+    # function for blending dynamic and static outputs together, based on the render mode
+    
+    blendw_rev = jnp.ones_like(blendw) - blendw
+    if render_mode == 'both':
+      # combine static and dynamic nerf outputs
+      rgb = rgb_d * blendw[...,None] + rgb_s * blendw_rev[...,None]
+      sigma = sigma_d * blendw + sigma_s * blendw_rev
+    elif render_mode == 'dynamic':
+      # render dynamic component only for evaluation
+      rgb = rgb_d * blendw[...,None] + jnp.zeros_like(rgb_s) * blendw_rev[...,None]
+      sigma = sigma_d * blendw + jnp.zeros_like(sigma_s) * blendw_rev
+    elif render_mode == 'dynamic_full':
+      # render dynamic component fully, ignoring the value of blendw
+      rgb = rgb_d 
+      sigma = sigma_d
+    elif render_mode == 'dynamic_valid':
+      # render valid dynamic component
+      # background would just be green
+      # blendw = blendw.at[blendw > 0.01].set(1.)
+      # blendw = blendw.at[blendw <= 0.01].set(0.)
+      blendw = jnp.clip(blendw - 0.01, 0., 0.01) * 100
+      blendw_rev = jnp.ones_like(blendw) - blendw
+      rgb_s = jnp.ones_like(rgb_s) * jnp.array([[[0.,.5,0.]]])
+      rgb = rgb_d * blendw[...,None] + rgb_s * blendw_rev[...,None]
+      sigma = sigma_d * blendw + jnp.zeros_like(sigma_s) * blendw_rev
+    elif render_mode == 'static':
+      # render static component only for evaluation
+      rgb = jnp.zeros_like(rgb_d) * blendw[...,None] + rgb_s * blendw_rev[...,None]
+      sigma = jnp.zeros_like(sigma_d) * blendw + sigma_s * blendw_rev
+    elif render_mode == 'static_full':
+      # render static component fully, ignoring the value of blendw
+      rgb = rgb_s 
+      sigma = sigma_s
+    elif render_mode == 'blendw':
+      # render blending weights
+      rgb = jnp.ones_like(rgb_d) * blendw[...,None]
+      sigma = sigma_d * blendw + sigma_s * blendw_rev
+    elif render_mode == 'deformation':
+      # render the amount of deformation in dynamic component
+      # need to ensure range [0,1]. TODO: better normalization
+      rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
+      sigma = sigma_d * blendw + jnp.zeros_like(sigma_s) * blendw_rev
+    elif render_mode == 'time':
+      # render the warped time coordinate
+      rgb = jnp.clip((warped_points[...,3:]), 0, 1)
+      sigma = sigma_d * blendw + jnp.zeros_like(sigma_s) * blendw_rev
+    else:
+      raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
+    return rgb, sigma
+
   def render_samples(self,
                      level,
                      points, 
@@ -1581,7 +1635,7 @@ class DecomposeNerfModel(NerfModel):
         # Override hyper points if present in metadata dict.
         hyper_point_override=metadata.get('hyper_point'))
 
-    rgb, sigma, blendw = self.query_template(
+    rgb_d, sigma_d, blendw = self.query_template(
         level,
         warped_points,
         viewdirs,
@@ -1590,14 +1644,14 @@ class DecomposeNerfModel(NerfModel):
         metadata_encoded=metadata_encoded)
 
     # Filter densities based on rendering options.
-    sigma = filter_sigma(points, sigma, render_opts)
+    sigma_d = filter_sigma(points, sigma_d, render_opts)
 
     if warp_jacobian is not None:
       out['warp_jacobian'] = warp_jacobian
     out['warped_points'] = warped_points
 
     # query static nerf
-    s_rgb, s_sigma = self.static_nerf.query_template(
+    rgb_s, sigma_s = self.static_nerf.query_template(
         level,
         points,
         viewdirs,
@@ -1607,59 +1661,11 @@ class DecomposeNerfModel(NerfModel):
 
     cond = extra_params['freeze_blendw']
     blendw = jax.lax.cond(cond, lambda: jnp.ones_like(blendw) * extra_params['freeze_blendw_value'], lambda: blendw)
-    blendw_rev = jnp.ones_like(blendw) - blendw
-    # blendw = jnp.zeros_like(blendw)
 
     if self.use_blendw_loss:
       out['blendw'] = blendw
 
-    if self.render_mode == 'both':
-      # combine static and dynamic nerf outputs
-      rgb = rgb * blendw[...,None] + s_rgb * blendw_rev[...,None]
-      sigma = sigma * blendw + s_sigma * blendw_rev
-    elif self.render_mode == 'dynamic':
-      # render dynamic component only for evaluation
-      rgb = rgb * blendw[...,None] + jnp.zeros_like(s_rgb) * blendw_rev[...,None]
-      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * blendw_rev
-    elif self.render_mode == 'dynamic_full':
-      # render dynamic component fully, ignoring the value of blendw
-      rgb = rgb 
-      sigma = sigma
-    elif self.render_mode == 'dynamic_valid':
-      # render valid dynamic component
-      # background would just be green
-      # blendw = blendw.at[blendw > 0.01].set(1.)
-      # blendw = blendw.at[blendw <= 0.01].set(0.)
-      blendw = jnp.clip(blendw - 0.01, 0., 0.01) * 100
-      blendw_rev = jnp.ones_like(blendw) - blendw
-      s_rgb = jnp.ones_like(s_rgb) * jnp.array([[[0.,.5,0.]]])
-      rgb = rgb * blendw[...,None] + s_rgb * blendw_rev[...,None]
-      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * blendw_rev
-    elif self.render_mode == 'static':
-      # render static component only for evaluation
-      rgb = jnp.zeros_like(rgb) * blendw[...,None] + s_rgb * blendw_rev[...,None]
-      sigma = jnp.zeros_like(sigma) * blendw + s_sigma * blendw_rev
-    elif self.render_mode == 'static_full':
-      # render static component fully, ignoring the value of blendw
-      rgb = s_rgb 
-      sigma = s_sigma
-    elif self.render_mode == 'blendw':
-      # render blending weights
-      rgb = jnp.ones_like(rgb) * blendw[...,None]
-      sigma = sigma * blendw + s_sigma * blendw_rev
-    elif self.render_mode == 'deformation':
-      # render the amount of deformation in dynamic component
-      # need to ensure range [0,1]. TODO: better normalization
-      rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
-      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * blendw_rev
-    elif self.render_mode == 'time':
-      # render the warped time coordinate
-      rgb = jnp.clip((warped_points[...,3:]), 0, 1)
-      sigma = sigma * blendw + jnp.zeros_like(s_sigma) * blendw_rev
-    else:
-      raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
-
-
+    rgb, sigma = self.blend_results(self.render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points)
     out.update(model_utils.volumetric_rendering(
         rgb,
         sigma,
@@ -1667,6 +1673,17 @@ class DecomposeNerfModel(NerfModel):
         directions,
         use_white_background=self.use_white_background,
         sample_at_infinity=use_sample_at_infinity))
+
+    for render_mode in self.extra_renders:
+      rgb, sigma = self.blend_results(render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points)
+      extra_render = model_utils.volumetric_rendering(
+                          rgb,
+                          sigma,
+                          z_vals,
+                          directions,
+                          use_white_background=self.use_white_background,
+                          sample_at_infinity=use_sample_at_infinity)
+      out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
 
     # Add a map containing the returned points at the median depth.
     depth_indices = model_utils.compute_depth_index(out['weights'])
