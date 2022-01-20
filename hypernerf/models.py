@@ -1628,8 +1628,9 @@ class DecomposeNerfModel(NerfModel):
     elif self.render_mode == 'dynamic_valid':
       # render valid dynamic component
       # background would just be green
-      blendw[blendw > 0.01] = 1.
-      blendw[blendw <= 0.01] = 0.
+      # blendw = blendw.at[blendw > 0.01].set(1.)
+      # blendw = blendw.at[blendw <= 0.01].set(0.)
+      blendw = jnp.clip(blendw - 0.01, 0., 0.01) * 100
       blendw_rev = jnp.ones_like(blendw) - blendw
       s_rgb = jnp.ones_like(s_rgb) * jnp.array([[[0.,.5,0.]]])
       rgb = rgb * blendw[...,None] + s_rgb * blendw_rev[...,None]

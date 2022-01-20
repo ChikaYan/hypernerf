@@ -18,7 +18,7 @@
             "request": "launch",
             "program": "train.py",
             "console": "integratedTerminal",
-            "args": ["--base_folder", "log/debug/decompose", "--gin_bindings=\"data_dir='./data/kubric_cone_v2/'\"", "--gin_configs", "configs/decompose/train.gin", "--debug"]
+            "args": ["--base_folder", "log/debug/decompose", "--gin_bindings=\"data_dir='./data/kubric_car_sfm/'\"", "--gin_configs", "configs/decompose/train.gin", "--debug"]
         },
         {
             "name": "train_separate",
@@ -54,12 +54,12 @@
             "args": ["--base_folder", "log/kubric_car/original_gt_cam", "--gin_bindings=\"data_dir='./data/kubric_car/'\"", "--gin_configs", "configs/eval_local_fix_view.gin", "--debug"]
         },
         {
-            "name": "eval_decompose",
+            "name": "eval_decompose_dy_valid",
             "type": "python",
             "request": "launch",
             "program": "eval.py",
             "console": "integratedTerminal",
-            "args": ["--base_folder", "log/debug/decompose", "--gin_bindings=\"data_dir='./data/kubric_movid_2/'\"", "--gin_configs", "configs/eval_decompose.gin", "--debug"]
+            "args": ["--base_folder", "log/kubric_car_scam/decompose_freeze_blendw/", "--gin_bindings=\"data_dir='./data/kubric_car_scam/'\"", "--gin_configs", "configs/decompose/eval_decompose_dy_valid.gin", "--debug"]
         },
         {
             "name": "eval_kubric",
