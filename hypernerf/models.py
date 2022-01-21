@@ -1146,6 +1146,9 @@ class DecomposeNerfModel(NerfModel):
       functools.partial(modules.GLOEmbed, num_dims=8))
   warp_embed_key: str = 'warp'
 
+  # Blending mode, 'old' or 'nsff'
+  blend_mode: str = 'old'
+
   # Evaluation render configs
   render_mode: str = 'both'
 
@@ -1665,25 +1668,74 @@ class DecomposeNerfModel(NerfModel):
     if self.use_blendw_loss:
       out['blendw'] = blendw
 
-    rgb, sigma = self.blend_results(self.render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points)
-    out.update(model_utils.volumetric_rendering(
-        rgb,
-        sigma,
-        z_vals,
-        directions,
-        use_white_background=self.use_white_background,
-        sample_at_infinity=use_sample_at_infinity))
+    if self.blend_mode == 'old':
+      rgb, sigma = self.blend_results(self.render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points)
+      out.update(model_utils.volumetric_rendering(
+          rgb,
+          sigma,
+          z_vals,
+          directions,
+          use_white_background=self.use_white_background,
+          sample_at_infinity=use_sample_at_infinity))
 
-    for render_mode in self.extra_renders:
-      rgb, sigma = self.blend_results(render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points)
-      extra_render = model_utils.volumetric_rendering(
-                          rgb,
-                          sigma,
-                          z_vals,
-                          directions,
-                          use_white_background=self.use_white_background,
-                          sample_at_infinity=use_sample_at_infinity)
-      out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
+      for render_mode in self.extra_renders:
+        rgb, sigma = self.blend_results(render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points)
+        extra_render = model_utils.volumetric_rendering(
+                            rgb,
+                            sigma,
+                            z_vals,
+                            directions,
+                            use_white_background=self.use_white_background,
+                            sample_at_infinity=use_sample_at_infinity)
+        out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
+    elif self.blend_mode == 'nsff':
+      out.update(model_utils.volumetric_rendering_blending(
+          rgb_d,
+          sigma_d,
+          rgb_s,
+          sigma_s,
+          blendw,
+          z_vals,
+          directions,
+          use_white_background=self.use_white_background,
+          sample_at_infinity=use_sample_at_infinity))
+
+      for render_mode in self.extra_renders:
+        ex_rgb_d, ex_sigma_d = rgb_d, sigma_d 
+        ex_rgb_s, ex_sigma_s = rgb_s, sigma_s
+        ex_blendw = blendw
+        if render_mode == 'static':
+          ex_rgb_d = jnp.zeros_like(ex_rgb_d)
+          ex_sigma_d = jnp.zeros_like(ex_sigma_d)
+        elif render_mode == 'static_full':
+          ex_blendw = jnp.zeros_like(ex_blendw)
+        elif render_mode == 'dynamic':
+          ex_rgb_s = jnp.zeros_like(ex_rgb_s)
+          ex_sigma_s = jnp.zeros_like(ex_sigma_s)
+        elif render_mode == 'dynamic_full':
+          ex_blendw = jnp.ones_like(ex_blendw)
+        elif render_mode == 'blendw':
+          ex_rgb_d = jnp.ones_like(ex_rgb_d) # * blendw[...,None]
+          ex_rgb_s = jnp.zeros_like(ex_rgb_d)
+          # ex_sigma_d = blendw
+          # ex_sigma_s = 1. - blendw
+        else:
+          raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
+        
+        extra_render = model_utils.volumetric_rendering_blending(
+          ex_rgb_d,
+          ex_sigma_d,
+          ex_rgb_s,
+          ex_sigma_s,
+          ex_blendw,
+          z_vals,
+          directions,
+          use_white_background=self.use_white_background,
+          sample_at_infinity=use_sample_at_infinity)
+        out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
+
+    else:
+      raise NotImplementedError(f'Blending mode {self.blend_mode} not recognised')
 
     # Add a map containing the returned points at the median depth.
     depth_indices = model_utils.compute_depth_index(out['weights'])

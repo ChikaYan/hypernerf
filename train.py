@@ -560,11 +560,11 @@ def plot_images(tag: str,
 
   save_dir = save_dir / tag
   save_dir.mkdir(parents=True, exist_ok=True)
-  image_utils.save_image(save_dir / f'regular_{item_id}.png',
+  image_utils.save_image(save_dir / f'regular_rgb_{item_id}.png',
                           image_utils.image_to_uint8(rgb))
 
   for extra_tag in extra_render_tags:
-    image_utils.save_image(save_dir / f'{extra_tag}_{item_id}.png',
+    image_utils.save_image(save_dir / f'{extra_tag}_rgb_{item_id}.png',
                           image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
 
 

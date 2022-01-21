@@ -120,7 +120,8 @@ def plot_images(*,
                 model_out: Any,
                 save_dir: Optional[gpath.GPath],
                 datasource: datasets.DataSource,
-                extra_images=None):
+                extra_images=None,
+                extra_render_tags=None):
   """Process and plot a single batch."""
   item_id = item_id.replace('/', '_')
   rgb = model_out['rgb'][..., :3]
@@ -140,7 +141,7 @@ def plot_images(*,
   if save_dir:
     save_dir = save_dir / tag
     save_dir.mkdir(parents=True, exist_ok=True)
-    image_utils.save_image(save_dir / f'rgb_{item_id}.png',
+    image_utils.save_image(save_dir / f'regular_rgb_{item_id}.png',
                            image_utils.image_to_uint8(rgb))
     # image_utils.save_image(save_dir / f'depth_expected_viz_{item_id}.png',
     #                        image_utils.image_to_uint8(depth_exp_viz))
@@ -186,6 +187,11 @@ def plot_images(*,
   if extra_images:
     for k, v in extra_images.items():
       summary_writer.image(f'{k}/{tag}/{item_id}', v, step)
+
+
+  for extra_tag in extra_render_tags:
+    image_utils.save_image(save_dir / f'{extra_tag}_rgb_{item_id}.png',
+                          image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
 
 
 def sample_random_metadata(datasource, batch, step):
@@ -254,7 +260,8 @@ def process_iterator(tag: str,
         summary_writer=summary_writer,
         save_dir=save_dir,
         datasource=datasource,
-        extra_images=extra_images)
+        extra_images=extra_images,
+        extra_render_tags=model.extra_renders)
     if jax.process_index() == 0:
       stats = compute_stats(batch, model_out)
       plot_images(
@@ -266,7 +273,8 @@ def process_iterator(tag: str,
           summary_writer=summary_writer,
           save_dir=save_dir,
           datasource=datasource,
-          extra_images=extra_images)
+          extra_images=extra_images,
+          extra_render_tags=model.extra_renders)
     if jax.process_index() == 0:
       for k, v in stats.items():
         meters[k].update(v)
@@ -279,12 +287,15 @@ def process_iterator(tag: str,
 
   # render a video of rgb output
   if save_dir:
-    with imageio.get_writer(f'{save_dir}/{tag}/rgb_video.gif', fps=5, mode='I') as writer:
-      for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/rgb*.png')):
-        image = imageio.imread(rgb_path)
-        writer.append_data(image)
+    render_tags = ['regular'] + list(model.extra_renders)
+    # render_tags.concatenate(list(model.extra_renders))
+    for render_tag in render_tags:
+      with imageio.get_writer(f'{save_dir}/{tag}/{render_tag}.gif', fps=5, mode='I') as writer:
+        for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/{render_tag}_rgb_*.png')):
+          image = imageio.imread(rgb_path)
+          writer.append_data(image)
     if KEEP_GIF_ONLY:
-      for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/rgb*.png')):
+      for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/*.png')):
         os.remove(rgb_path)
 
 
