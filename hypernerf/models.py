@@ -1880,8 +1880,8 @@ class DecomposeNerfModel(NerfModel):
       lambda: blendw
       )
 
-    if self.use_blendw_loss:
-      out['blendw'] = blendw
+    # if self.use_blendw_loss:
+    out['blendw'] = blendw
 
     if self.blend_mode == 'old':
       rgb, sigma = self.blend_results(self.render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points)

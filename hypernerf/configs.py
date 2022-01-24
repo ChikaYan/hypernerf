@@ -104,6 +104,7 @@ class TrainConfig:
   background_loss_weight: float = 0.0
   bg_decompose_loss_weight: float = 0.0
   blendw_loss_weight: float = 0.0
+  force_blendw_loss_weight: float = 1.0
   # The batch size for background regularization loss.
   background_points_batch_size: int = 16384
   # Whether to use the warp reg loss.
@@ -145,8 +146,11 @@ class TrainConfig:
   # Initialize the static model for several iterations first
   # During this, dynamic model would be frozen
   freeze_dynamic_steps: int = 0
-  # Fix blendw to certain values for a fixed number of iterations
+  # Fix blendw to certain values for a fixed number of iters
   fix_blendw_steps: int = 0
+  # Encourage the predicted blendw to be close to a certain value for some iters
+  # This is different to fixing the value
+  force_blendw_steps: int = 0
   fix_blendw_value: float = 0.25
 
   # Use provided dynmaic object mask to separately train the dynamic and static component

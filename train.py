@@ -87,6 +87,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/background', stats.get('background_loss'))
   _log_scalar('loss/bg_decompose', stats.get('bg_decompose_loss'))
   _log_scalar('loss/blendw_loss', stats.get('blendw_loss'))
+  _log_scalar('loss/force_blendw_loss', stats.get('force_blendw_loss'))
 
   for k, v in time_dict.items():
     writer.scalar(f'time/{k}', v, step)
@@ -326,6 +327,7 @@ def main(argv):
       background_loss_weight=train_config.background_loss_weight,
       bg_decompose_loss_weight=train_config.bg_decompose_loss_weight,
       blendw_loss_weight=train_config.blendw_loss_weight,
+      force_blendw_loss_weight=train_config.force_blendw_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
   print(f'Loaded step {state.optimizer.state.step}')
@@ -405,6 +407,7 @@ def main(argv):
     freeze_static = jax_utils.replicate(False)
     freeze_dynamic = jax_utils.replicate(step<train_config.freeze_dynamic_steps)
     freeze_blendw = jax_utils.replicate(step<train_config.fix_blendw_steps)
+    force_blendw = jax_utils.replicate(step<train_config.force_blendw_steps)
     state = state.replace(nerf_alpha=nerf_alpha,
                           warp_alpha=warp_alpha,
                           hyper_alpha=hyper_alpha,
@@ -412,7 +415,8 @@ def main(argv):
                           # render_mode=render_mode,
                           freeze_static=freeze_static,
                           freeze_dynamic=freeze_dynamic,
-                          freeze_blendw=freeze_blendw)
+                          freeze_blendw=freeze_blendw,
+                          force_blendw=force_blendw)
 
     if train_config.use_mask_sep_train:
       # check the mask in the batch to disable training of the opposite component

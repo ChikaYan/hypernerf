@@ -46,6 +46,7 @@ class ScalarParams:
   background_loss_weight: float = 0.0
   bg_decompose_loss_weight: float = 0.0
   blendw_loss_weight: float = 0.0
+  force_blendw_loss_weight: float = 1.0
   background_noise_std: float = 0.001
   hyper_reg_loss_weight: float = 0.0
 
@@ -218,6 +219,15 @@ def compute_blendw_loss(coarse_blendw, fine_blendw, clip_threshold=0.00001, alph
   entropy = - (blendw * jnp.log(blendw) + (ones-blendw)*jnp.log(ones-blendw))
 
   return entropy
+
+@functools.partial(jax.jit)
+def compute_force_blendw_loss(coarse_blendw, fine_blendw, force_blendw_value):
+  """
+  Compute loss that forces blendw to be close to certain value
+  force_blendw_value: the value to force blendw to
+  """
+  force_blendw_loss = ((jnp.concatenate([coarse_blendw, fine_blendw],0) - force_blendw_value)**2).mean()
+  return force_blendw_loss
 
 @functools.partial(jax.jit,
                    static_argnums=0,
@@ -440,6 +450,15 @@ def train_step(model: models.NerfModel,
       losses['blendw_loss'] = (
         scalar_params.blendw_loss_weight * blendw_loss)
       stats['blendw_loss'] = blendw_loss
+
+      force_blendw_loss = jax.lax.cond(
+        state.extra_params['force_blendw'], 
+        compute_force_blendw_loss, 
+        lambda *args: 0.,
+        ret['coarse']['blendw'], ret['fine']['blendw'], state.extra_params['freeze_blendw_value'],)   
+
+      losses['force_blendw_loss'] = scalar_params.force_blendw_loss_weight * force_blendw_loss
+      stats['force_blendw_loss'] = force_blendw_loss
         
 
     return sum(losses.values()), (stats, ret)

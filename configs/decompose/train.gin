@@ -1,7 +1,7 @@
 include 'configs/test_local.gin'
 
 image_scale = 2
-max_steps = 10000
+max_steps = 50000
 
 TrainConfig.use_decompose_nerf = True
 
@@ -39,7 +39,9 @@ TrainConfig.bg_decompose_loss_weight = 1.0
 TrainConfig.blendw_loss_weight = 0.0001
 
 # initialize static model for some iterations first
-TrainConfig.fix_blendw_steps = 1001
+TrainConfig.fix_blendw_steps = 0
+TrainConfig.force_blendw_steps = 3001
+TrainConfig.force_blendw_loss_weight = 0.1
 TrainConfig.fix_blendw_value = 0.25
 
 DecomposeNerfModel.blend_mode = 'nsff'

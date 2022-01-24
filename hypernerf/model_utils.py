@@ -38,6 +38,7 @@ class TrainState:
   freeze_static: jnp.ndarray = jnp.array([False])
   freeze_dynamic: jnp.ndarray = jnp.array([False])
   freeze_blendw: jnp.ndarray = jnp.array([False])
+  force_blendw: jnp.ndarray = jnp.array([False])
   freeze_blendw_value: jnp.ndarray = jnp.array([0.5])
 
   @property
@@ -51,6 +52,7 @@ class TrainState:
         'freeze_static': self.freeze_static,
         'freeze_dynamic': self.freeze_dynamic,
         'freeze_blendw': self.freeze_blendw,
+        'force_blendw': self.force_blendw,
         'freeze_blendw_value': self.freeze_blendw_value
     }
 
