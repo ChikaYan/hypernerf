@@ -39,9 +39,10 @@ TrainConfig.bg_decompose_loss_weight = 1.0
 TrainConfig.blendw_loss_weight = 0.0001
 
 # initialize static model for some iterations first
-TrainConfig.fix_blendw_steps = 5000
-TrainConfig.fix_blendw_value = 0.4
+TrainConfig.fix_blendw_steps = 1001
+TrainConfig.fix_blendw_value = 0.25
 
+DecomposeNerfModel.blend_mode = 'nsff'
 DecomposeNerfModel.extra_renders = ('static', 'dynamic', 'blendw')
 
 EvalConfig.eval_once = True
@@ -57,5 +58,7 @@ EvalConfig.num_fixed_time_views = -1
 EvalConfig.use_train_views = True
 EvalConfig.fix_view_eval = True
 EvalConfig.num_fixed_view_frames = -1
+EvalConfig.niter_runtime_eval = 1000
+EvalConfig.nimg_runtime_eval = 3
 
 NerfiesDataSource.use_gt_camera = False
