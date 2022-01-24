@@ -164,7 +164,7 @@ class NerfModel(nn.Module):
       functools.partial(modules.GLOEmbed, num_dims=8))
   warp_embed_key: str = 'warp'
 
-  # render configs
+  # render configs, decrepitated
   render_mode: str = None 
 
   @property
@@ -1583,6 +1583,218 @@ class DecomposeNerfModel(NerfModel):
       raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
     return rgb, sigma
 
+
+  def render_samples_init_both(self,
+                     level,
+                     points, 
+                     z_vals,
+                     directions,
+                     viewdirs, 
+                     metadata, 
+                     extra_params,
+                     use_warp=True,
+                     metadata_encoded=False,
+                     return_warp_jacobian=False,
+                     use_sample_at_infinity=False,
+                     render_opts=None):
+    '''
+    render_sample method that is used when wishing to initialize both static and dynamic components separately
+    Two components are queried and rendered individually, and both results are returned to obtain photometric loss for training 
+    '''
+    out = {'points': points}
+
+    batch_shape = points.shape[:-1]
+    # Create the warp embedding.
+    if use_warp:
+      if metadata_encoded:
+        warp_embed = metadata['encoded_warp']
+      else:
+        warp_embed = metadata[self.warp_embed_key]
+        warp_embed = self.warp_embed(warp_embed) # embed each key (integer) to 8 digit vector
+    else:
+      warp_embed = None
+
+    # Create the hyper embedding.
+    if self.has_hyper_embed:
+      if metadata_encoded:
+        hyper_embed = metadata['encoded_hyper']
+      elif self.hyper_use_warp_embed:
+        hyper_embed = warp_embed # hyper embed is just the warp embed
+      else:
+        hyper_embed = metadata[self.hyper_embed_key]
+        hyper_embed = self.hyper_embed(hyper_embed)
+    else:
+      hyper_embed = None
+
+    # Broadcast embeddings.
+    if warp_embed is not None:
+      warp_embed = jnp.broadcast_to( # boardcast the embeddings to each point
+          warp_embed[:, jnp.newaxis, :],
+          shape=(*batch_shape, warp_embed.shape[-1]))
+    if hyper_embed is not None:
+      hyper_embed = jnp.broadcast_to(
+          hyper_embed[:, jnp.newaxis, :],
+          shape=(*batch_shape, hyper_embed.shape[-1]))
+
+    # Map input points to warped spatial and hyper points.
+    warped_points, warp_jacobian = self.map_points(
+        points, warp_embed, hyper_embed, extra_params, use_warp=use_warp,
+        return_warp_jacobian=return_warp_jacobian,
+        # Override hyper points if present in metadata dict.
+        hyper_point_override=metadata.get('hyper_point'))
+
+    rgb_d, sigma_d, blendw = self.query_template(
+        level,
+        warped_points,
+        viewdirs,
+        metadata,
+        extra_params=extra_params,
+        metadata_encoded=metadata_encoded)
+
+    # Filter densities based on rendering options.
+    sigma_d = filter_sigma(points, sigma_d, render_opts)
+
+    if warp_jacobian is not None:
+      out['warp_jacobian'] = warp_jacobian
+    out['warped_points'] = warped_points
+
+    # query static nerf
+    rgb_s, sigma_s = self.static_nerf.query_template(
+        level,
+        points,
+        viewdirs,
+        metadata,
+        extra_params=extra_params,
+        metadata_encoded=metadata_encoded)
+
+
+    def freeze_blendw_blending():
+      # when blendw is frozen, we want both static and dynamic component to be equally trained
+      # so run volume rendering on both the outputs, and get simple average
+      out_d = model_utils.volumetric_rendering(
+        rgb_d,
+        sigma_d,
+        z_vals,
+        directions,
+        use_white_background=self.use_white_background,
+        sample_at_infinity=use_sample_at_infinity)
+      out_s = model_utils.volumetric_rendering(
+        rgb_s,
+        sigma_s,
+        z_vals,
+        directions,
+        use_white_background=self.use_white_background,
+        sample_at_infinity=use_sample_at_infinity)
+
+      out = out_d
+      out['rgb_s'] = out_s['rgb']
+      for render_mode in self.extra_renders:
+        rgb, sigma = self.blend_results(render_mode, rgb_d, sigma_d, rgb_s, sigma_s, jnp.ones_like(blendw) * 0.5, points, warped_points)
+        extra_render = model_utils.volumetric_rendering(
+                            rgb,
+                            sigma,
+                            z_vals,
+                            directions,
+                            use_white_background=self.use_white_background,
+                            sample_at_infinity=use_sample_at_infinity)
+        out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
+
+      if self.blend_mode == 'nsff':
+        out['weights_dynamic'] = out['weights']
+        out['weights_static'] = out['weights']
+      return out
+
+    def unfreeze_blendw_blending():
+      if self.blend_mode == 'old':
+            rgb, sigma = self.blend_results(self.render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points)
+            out = model_utils.volumetric_rendering(
+                rgb,
+                sigma,
+                z_vals,
+                directions,
+                use_white_background=self.use_white_background,
+                sample_at_infinity=use_sample_at_infinity)
+
+            for render_mode in self.extra_renders:
+              rgb, sigma = self.blend_results(render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points)
+              extra_render = model_utils.volumetric_rendering(
+                                  rgb,
+                                  sigma,
+                                  z_vals,
+                                  directions,
+                                  use_white_background=self.use_white_background,
+                                  sample_at_infinity=use_sample_at_infinity)
+              out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
+      elif self.blend_mode == 'nsff':
+        out = model_utils.volumetric_rendering_blending(
+            rgb_d,
+            sigma_d,
+            rgb_s,
+            sigma_s,
+            blendw,
+            z_vals,
+            directions,
+            use_white_background=self.use_white_background,
+            sample_at_infinity=use_sample_at_infinity)
+
+        for render_mode in self.extra_renders:
+          ex_rgb_d, ex_sigma_d = rgb_d, sigma_d 
+          ex_rgb_s, ex_sigma_s = rgb_s, sigma_s
+          ex_blendw = blendw
+          if render_mode == 'static':
+            ex_rgb_d = jnp.zeros_like(ex_rgb_d)
+            ex_sigma_d = jnp.zeros_like(ex_sigma_d)
+          elif render_mode == 'static_full':
+            ex_blendw = jnp.zeros_like(ex_blendw)
+          elif render_mode == 'dynamic':
+            ex_rgb_s = jnp.zeros_like(ex_rgb_s)
+            ex_sigma_s = jnp.zeros_like(ex_sigma_s)
+          elif render_mode == 'dynamic_full':
+            ex_blendw = jnp.ones_like(ex_blendw)
+          elif render_mode == 'blendw':
+            ex_rgb_d = jnp.ones_like(ex_rgb_d) # * blendw[...,None]
+            ex_rgb_s = jnp.zeros_like(ex_rgb_d)
+            # ex_sigma_d = blendw
+            # ex_sigma_s = 1. - blendw
+          else:
+            raise NotImplementedError(f'Rendering model {render_mode} is not recognized')
+          
+          extra_render = model_utils.volumetric_rendering_blending(
+            ex_rgb_d,
+            ex_sigma_d,
+            ex_rgb_s,
+            ex_sigma_s,
+            ex_blendw,
+            z_vals,
+            directions,
+            use_white_background=self.use_white_background,
+            sample_at_infinity=use_sample_at_infinity)
+          out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
+
+      else:
+        raise NotImplementedError(f'Blending mode {self.blend_mode} not recognised')
+      
+      # extra assignment to keep type consistent
+      out['rgb_s'] = out['rgb']
+      return out
+
+    cond = extra_params['freeze_blendw']
+    # this assigned of blendw here is to prevent gradient flow on blendw loss when it's frozen
+    blendw = jax.lax.cond(cond, lambda: jnp.ones_like(blendw) * 0.5, lambda: blendw)
+    out.update(jax.lax.cond(cond, freeze_blendw_blending, unfreeze_blendw_blending))
+
+    if self.use_blendw_loss:
+      out['blendw'] = blendw
+
+    # Add a map containing the returned points at the median depth.
+    depth_indices = model_utils.compute_depth_index(out['weights'])
+    med_points = jnp.take_along_axis(
+        # Unsqueeze axes: sample axis, coords.
+        warped_points, depth_indices[..., None, None], axis=-2)
+    out['med_points'] = med_points
+
+    return out
+
   def render_samples(self,
                      level,
                      points, 
@@ -1662,8 +1874,11 @@ class DecomposeNerfModel(NerfModel):
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
 
-    cond = extra_params['freeze_blendw']
-    blendw = jax.lax.cond(cond, lambda: jnp.ones_like(blendw) * extra_params['freeze_blendw_value'], lambda: blendw)
+    blendw = jax.lax.cond(
+      extra_params['freeze_blendw'], 
+      lambda: jnp.ones_like(blendw) * extra_params['freeze_blendw_value'], 
+      lambda: blendw
+      )
 
     if self.use_blendw_loss:
       out['blendw'] = blendw
@@ -1720,7 +1935,7 @@ class DecomposeNerfModel(NerfModel):
           # ex_sigma_d = blendw
           # ex_sigma_s = 1. - blendw
         else:
-          raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
+          raise NotImplementedError(f'Rendering model {render_mode} is not recognized')
         
         extra_render = model_utils.volumetric_rendering_blending(
           ex_rgb_d,

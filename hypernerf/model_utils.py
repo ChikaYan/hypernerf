@@ -165,7 +165,8 @@ def volumetric_rendering_blending(rgb_d,
                                   use_white_background,
                                   sample_at_infinity=True,
                                   eps=1e-10):
-  """Volumetric Rendering Function with Blending
+  """
+  Volumetric Rendering Function with Blending
   """
   last_sample_z = 1e10 if sample_at_infinity else 1e-19
   dists = jnp.concatenate([ # distance between each sample along a ray
@@ -180,11 +181,11 @@ def volumetric_rendering_blending(rgb_d,
   # Prepend a 1.0 to make this an 'exclusive' cumprod as in `tf.math.cumprod`.
   Ts_d = jnp.concatenate([
       jnp.ones_like(alpha_d[..., :1], alpha_d.dtype),
-      jnp.cumprod(1.0 - alpha_d[..., :-1] + eps, axis=-1), # this calculates array of T_i
+      jnp.cumprod(1.0 - alpha_d[..., :-1] + eps, axis=-1),
   ], axis=-1)
   Ts_s = jnp.concatenate([
       jnp.ones_like(alpha_s[..., :1], alpha_s.dtype),
-      jnp.cumprod(1.0 - alpha_s[..., :-1] + eps, axis=-1), # this calculates array of T_i
+      jnp.cumprod(1.0 - alpha_s[..., :-1] + eps, axis=-1),
   ], axis=-1)
 
   weights_d = alpha_d * Ts_d

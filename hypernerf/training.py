@@ -294,6 +294,25 @@ def train_step(model: models.NerfModel,
       rgb_loss = jnp.sum(jnp.asarray(losses), axis=0).mean()
     else:
       rgb_loss = ((model_out['rgb'][..., :3] - batch['rgb'][..., :3])**2).mean() # computer average pixel L2 loss
+
+    # # following function is used for initializing both components:
+    # def get_additional_rgb_loss():
+    #   # calculate additional rgb loss for static component
+    #   # Only used for initialization, when we want to train both components separately
+    #   if 'channel_set' in batch['metadata']:
+    #     num_sets = int(model_out['rgb'].shape[-1] / 3)
+    #     losses = []
+    #     for i in range(num_sets):
+    #       loss = (model_out['rgb_s'][..., i * 3:(i + 1) * 3] - batch['rgb'])**2
+    #       loss *= (batch['metadata']['channel_set'] == i)
+    #       losses.append(loss)
+    #     rgb_loss = jnp.sum(jnp.asarray(losses), axis=0).mean()
+    #   else:
+    #     rgb_loss = ((model_out['rgb_s'][..., :3] - batch['rgb'][..., :3])**2).mean() # computer average pixel L2 loss
+    #   return rgb_loss
+    
+    # rgb_loss += jax.lax.cond(state.extra_params['freeze_blendw'], get_additional_rgb_loss, lambda: 0.)
+    
     stats = {
         'loss/rgb': rgb_loss,
     }

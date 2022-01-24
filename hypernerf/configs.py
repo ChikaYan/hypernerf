@@ -208,3 +208,5 @@ class EvalConfig:
 
   # Runtime evaluation for every n iteration 
   niter_runtime_eval: int = 1000
+  # Number of training images rendered for runtime evaluation
+  nimg_runtime_eval: int = 1

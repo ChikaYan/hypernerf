@@ -416,15 +416,17 @@ def main(argv):
 
     if train_config.use_mask_sep_train:
       # check the mask in the batch to disable training of the opposite component
+      # Note that this is disabled at the moment
+      raise NotImplementedError('mask training bug not fixed')
       pred = (batch['mask'] > 0)[0,:,0]
       if all(pred) !=  any(pred):
         raise ValueError('Batch separation is incorrect, one batch contains rays for both static and dynamic components')
       if all(pred):
         # dynamic batch
-        freeze_static = True
+        freeze_static = False
       else:
         # static batch
-        freeze_dynamic = True
+        freeze_dynamic = False
 
     with time_tracker.record_time('train_step'):
       state, stats, keys, model_out = ptrain_step(
@@ -443,7 +445,6 @@ def main(argv):
       logging.info('\tcoarse metrics: %s', coarse_metrics_str)
       if 'fine' in stats:
         logging.info('\tfine metrics: %s', fine_metrics_str)
-      logging.info(f'\tfreeze_static: {freeze_static}, freeze_dynamic: {freeze_dynamic}')
 
     if step % train_config.save_every == 0 and jax.process_index() == 0:
       training.save_checkpoint(checkpoint_dir, state, keep=10)
@@ -467,7 +468,7 @@ def main(argv):
     if step % eval_config.niter_runtime_eval == 0 and jax.process_index() == 0:
       # do a quick evaluation render on train
       train_eval_ids = utils.strided_subset(
-          datasource.train_ids, 1) 
+          datasource.train_ids, eval_config.nimg_runtime_eval) 
       train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
 
       def _model_fn(key_0, key_1, params, rays_dict, extra_params):
