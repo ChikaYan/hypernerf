@@ -213,7 +213,7 @@ def compute_blendw_loss(coarse_blendw, fine_blendw, clip_threshold=0.00001, alph
   Compute the blendw loss based on entropy
   """
 
-  blendw = jnp.concatenate([coarse_blendw.reshape([-1,1]), fine_blendw.reshape([-1,1])],0)
+  blendw = jnp.concatenate([coarse_blendw, fine_blendw],-1)
   blendw = jnp.clip(blendw, a_min=clip_threshold, a_max=1-clip_threshold)
   ones = jnp.ones_like(blendw)
   entropy = - (blendw * jnp.log(blendw) + (ones-blendw)*jnp.log(ones-blendw))
@@ -226,7 +226,8 @@ def compute_force_blendw_loss(coarse_blendw, fine_blendw, force_blendw_value):
   Compute loss that forces blendw to be close to certain value
   force_blendw_value: the value to force blendw to
   """
-  force_blendw_loss = ((jnp.concatenate([coarse_blendw, fine_blendw],0) - force_blendw_value)**2).mean()
+  blendw = jnp.concatenate([coarse_blendw, fine_blendw],-1)
+  force_blendw_loss = ((blendw - force_blendw_value)**2).mean()
   return force_blendw_loss
 
 @functools.partial(jax.jit,

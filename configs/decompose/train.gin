@@ -27,7 +27,7 @@ DecomposeNerfModel.hyper_sheet_mlp_cls = @HyperSheetMLP
 DecomposeNerfModel.hyper_use_warp_embed = True
 DecomposeNerfModel.use_warp = True
 DecomposeNerfModel.use_blendw_loss = True
-DecomposeNerfModel.blendw_out_depth = 4
+DecomposeNerfModel.blendw_out_depth = 7
 
 TrainConfig.print_every = 100
 TrainConfig.log_every = 100
@@ -40,12 +40,12 @@ TrainConfig.blendw_loss_weight = 0.0001
 
 # initialize static model for some iterations first
 TrainConfig.fix_blendw_steps = 0
-TrainConfig.force_blendw_steps = 3001
-TrainConfig.force_blendw_loss_weight = 0.1
-TrainConfig.fix_blendw_value = 0.25
+TrainConfig.force_blendw_steps = 250
+TrainConfig.force_blendw_loss_weight = .1
+TrainConfig.fix_blendw_value = 0.15
 
 DecomposeNerfModel.blend_mode = 'nsff'
-DecomposeNerfModel.extra_renders = ('static', 'dynamic', 'blendw')
+DecomposeNerfModel.extra_renders = ('static', 'static_full', 'dynamic', 'blendw')
 
 EvalConfig.eval_once = True
 EvalConfig.save_output = True
@@ -60,7 +60,7 @@ EvalConfig.num_fixed_time_views = -1
 EvalConfig.use_train_views = True
 EvalConfig.fix_view_eval = True
 EvalConfig.num_fixed_view_frames = -1
-EvalConfig.niter_runtime_eval = 1000
-EvalConfig.nimg_runtime_eval = 3
+EvalConfig.niter_runtime_eval = 5000
+EvalConfig.nimg_runtime_eval = 1
 
 NerfiesDataSource.use_gt_camera = False

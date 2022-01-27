@@ -5,7 +5,7 @@ batch_size = 512
 eval_batch_size = 1024
 
 elastic_init_weight = 0.01
-max_steps = 125000
+max_steps = 50000
 lr_decay_steps = 500000
 init_lr = 1e-3
 final_lr = 1e-5
@@ -72,6 +72,7 @@ TrainConfig.print_every = 100
 TrainConfig.log_every = 100
 TrainConfig.histogram_every = 100
 TrainConfig.save_every = 1000
+EvalConfig.niter_runtime_eval = 5000
 
 EvalConfig.eval_once = False
 EvalConfig.save_output = True
@@ -87,4 +88,4 @@ EvalConfig.use_train_views = True
 EvalConfig.fix_view_eval = True
 EvalConfig.num_fixed_view_frames = -1
 
-NerfiesDataSource.use_gt_camera = True
+NerfiesDataSource.use_gt_camera = False

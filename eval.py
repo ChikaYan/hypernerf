@@ -188,10 +188,10 @@ def plot_images(*,
     for k, v in extra_images.items():
       summary_writer.image(f'{k}/{tag}/{item_id}', v, step)
 
-
-  for extra_tag in extra_render_tags:
-    image_utils.save_image(save_dir / f'{extra_tag}_rgb_{item_id}.png',
-                          image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
+  if extra_render_tags is not None:
+    for extra_tag in extra_render_tags:
+      image_utils.save_image(save_dir / f'{extra_tag}_rgb_{item_id}.png',
+                            image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
 
 
 def sample_random_metadata(datasource, batch, step):
@@ -238,6 +238,8 @@ def process_iterator(tag: str,
   params = state.optimizer.target['model']
   save_dir = save_dir / f'{step:08d}' / tag if save_dir else None
   meters = collections.defaultdict(utils.ValueMeter)
+  extra_renders = model.extra_renders if hasattr(model, 'extra_renders') else None
+
   for i, (item_id, batch) in enumerate(zip(item_ids, iterator)):
     logging.info('[%s:%d/%d] Processing %s ', tag, i+1, len(item_ids), item_id)
     extra_images = None
@@ -261,7 +263,7 @@ def process_iterator(tag: str,
         save_dir=save_dir,
         datasource=datasource,
         extra_images=extra_images,
-        extra_render_tags=model.extra_renders)
+        extra_render_tags=extra_renders)
     if jax.process_index() == 0:
       stats = compute_stats(batch, model_out)
       plot_images(
@@ -274,7 +276,7 @@ def process_iterator(tag: str,
           save_dir=save_dir,
           datasource=datasource,
           extra_images=extra_images,
-          extra_render_tags=model.extra_renders)
+          extra_render_tags=extra_renders)
     if jax.process_index() == 0:
       for k, v in stats.items():
         meters[k].update(v)
@@ -287,8 +289,9 @@ def process_iterator(tag: str,
 
   # render a video of rgb output
   if save_dir:
-    render_tags = ['regular'] + list(model.extra_renders)
-    # render_tags.concatenate(list(model.extra_renders))
+    render_tags = ['regular'] 
+    if extra_renders:
+      render_tags += list(extra_renders)
     for render_tag in render_tags:
       with imageio.get_writer(f'{save_dir}/{tag}/{render_tag}.gif', fps=5, mode='I') as writer:
         for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/{render_tag}_rgb_*.png')):

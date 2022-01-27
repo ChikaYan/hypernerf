@@ -568,9 +568,10 @@ def plot_images(tag: str,
   image_utils.save_image(save_dir / f'regular_rgb_{item_id}.png',
                           image_utils.image_to_uint8(rgb))
 
-  for extra_tag in extra_render_tags:
-    image_utils.save_image(save_dir / f'{extra_tag}_rgb_{item_id}.png',
-                          image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
+  if extra_render_tags is not None:
+    for extra_tag in extra_render_tags:
+      image_utils.save_image(save_dir / f'{extra_tag}_rgb_{item_id}.png',
+                            image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
 
 
 
