@@ -329,7 +329,7 @@ def parallel_tree_map(f, tree, **kwargs):
 
 def strided_subset(sequence, count):
   """Returns a strided subset of a list."""
-  if count < 0:
+  if count < 0 or count >= len(sequence):
     return sequence
   if count == 0:
     return []

@@ -88,6 +88,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/bg_decompose', stats.get('bg_decompose_loss'))
   _log_scalar('loss/blendw_loss', stats.get('blendw_loss'))
   _log_scalar('loss/force_blendw_loss', stats.get('force_blendw_loss'))
+  _log_scalar('loss/blendw_ray_loss', stats.get('blendw_ray_loss'))
 
   for k, v in time_dict.items():
     writer.scalar(f'time/{k}', v, step)
@@ -328,6 +329,8 @@ def main(argv):
       bg_decompose_loss_weight=train_config.bg_decompose_loss_weight,
       blendw_loss_weight=train_config.blendw_loss_weight,
       force_blendw_loss_weight=train_config.force_blendw_loss_weight,
+      blendw_ray_loss_weight=train_config.blendw_ray_loss_weight,
+      blendw_ray_loss_threshold=train_config.blendw_ray_loss_threshold,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
   print(f'Loaded step {state.optimizer.state.step}')

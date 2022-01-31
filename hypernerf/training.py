@@ -47,6 +47,8 @@ class ScalarParams:
   bg_decompose_loss_weight: float = 0.0
   blendw_loss_weight: float = 0.0
   force_blendw_loss_weight: float = 1.0
+  blendw_ray_loss_weight: float = 0.0
+  blendw_ray_loss_threshold: float = 1.0
   background_noise_std: float = 0.001
   hyper_reg_loss_weight: float = 0.0
 
@@ -229,6 +231,25 @@ def compute_force_blendw_loss(coarse_blendw, fine_blendw, force_blendw_value):
   blendw = jnp.concatenate([coarse_blendw, fine_blendw],-1)
   force_blendw_loss = ((blendw - force_blendw_value)**2).mean()
   return force_blendw_loss
+
+
+@functools.partial(jax.jit)
+def compute_blendw_ray_loss(coarse_blendw, fine_blendw, mask_thresold=1., clip_threshold=0.00001):
+  """
+  Compute loss that encourage blendw to stay concentrated on a ray
+  """
+  loss = 0.
+
+  for blendw in [coarse_blendw, fine_blendw]:
+    # prevent nan
+    blendw = jnp.clip(blendw, a_min=clip_threshold)
+    blendw_sum = jnp.sum(blendw, -1, keepdims=True) 
+    mask = jnp.where(blendw_sum < mask_thresold, 0., 1.) 
+    p = blendw / blendw_sum 
+    entropy = mask * -jnp.sum(p * jnp.log(p), -1, keepdims=True) 
+    loss += entropy.mean()
+
+  return loss / 2.
 
 @functools.partial(jax.jit,
                    static_argnums=0,
@@ -456,10 +477,21 @@ def train_step(model: models.NerfModel,
         state.extra_params['force_blendw'], 
         compute_force_blendw_loss, 
         lambda *args: 0.,
-        ret['coarse']['blendw'], ret['fine']['blendw'], state.extra_params['freeze_blendw_value'],)   
+        ret['coarse']['blendw'], ret['fine']['blendw'], state.extra_params['freeze_blendw_value'])   
 
       losses['force_blendw_loss'] = scalar_params.force_blendw_loss_weight * force_blendw_loss
       stats['force_blendw_loss'] = force_blendw_loss
+
+      blendw_ray_loss = jax.lax.cond(
+        state.extra_params['force_blendw'], 
+        lambda *args: 0.,
+        compute_blendw_ray_loss, 
+        ret['coarse']['blendw'], ret['fine']['blendw'], scalar_params.blendw_ray_loss_threshold)   
+
+      # blendw_ray_loss = compute_blendw_ray_loss(ret['coarse']['blendw'], ret['fine']['blendw'], scalar_params.blendw_ray_loss_threshold)   
+      losses['blendw_ray_loss'] = (
+        scalar_params.blendw_ray_loss_weight * blendw_ray_loss)
+      stats['blendw_ray_loss'] = blendw_ray_loss
         
 
     return sum(losses.values()), (stats, ret)
