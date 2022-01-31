@@ -1,10 +1,28 @@
 include 'configs/test_local.gin'
 
 # for evaluation
-render_mode = 'deformation'
-NerfModel.render_mode = %render_mode
-EvalConfig.subname = %render_mode
+# render_mode = 'deformation'
+# NerfModel.render_mode = %render_mode
+# EvalConfig.subname = %render_mode
+# EvalConfig.num_test_eval = 0
+# EvalConfig.normalise_rendering = False
+# EvalConfig.use_tsne = False
+# EvalConfig.save_output = True
+
+EvalConfig.subname = 'eval'
+EvalConfig.normalise_rendering = False
+NerfModel.extra_renders = ('deformation_norm',)
+NerfModel.deformation_render_scale = 2.0
+
+EvalConfig.num_train_eval = 50
+EvalConfig.num_val_eval = 20
 EvalConfig.num_test_eval = 0
-EvalConfig.normalise_rendering = True
-EvalConfig.use_tsne = False
+
 EvalConfig.save_output = True
+EvalConfig.eval_once = True
+
+EvalConfig.fix_time_eval = True
+EvalConfig.num_fixed_time_views = 50
+EvalConfig.use_train_views = True
+EvalConfig.fix_view_eval = True
+EvalConfig.num_fixed_view_frames = 50

@@ -167,6 +167,13 @@ class NerfModel(nn.Module):
   # render configs, decrepitated
   render_mode: str = None 
 
+  # Addition render modes options that will be included in the output for evaluation purpose
+  # Only support 'deformation', 'deformation_norm' and 'time'
+  extra_renders: tuple = () 
+
+  # Scale applied to deformation rendering
+  deformation_render_scale: float = 1.0
+
   @property
   def num_nerf_embeds(self):
     return max(self.embeddings_dict[self.nerf_embed_key]) + 1
@@ -505,7 +512,7 @@ class NerfModel(nn.Module):
       elif self.hyper_use_warp_embed:
         hyper_embed = warp_embed # hyper embed is just the warp embed
       else:
-        hyper_embed = metadata[self.hyper_embed_key]
+        hyper_embed = metadata[self.hyper_embed_key] # self.hyper_embed_key: appearance
         hyper_embed = self.hyper_embed(hyper_embed)
     else:
       hyper_embed = None
@@ -539,13 +546,34 @@ class NerfModel(nn.Module):
       if self.render_mode == 'deformation':
         # render the amount of deformation in dynamic component
         # need to ensure range [0,1]. TODO: better normalization
-        rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
+        rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) * self.deformation_render_scale
       elif self.render_mode == 'time':
         # render the warped time coordinate
         # Trying volume rendering with 4D data
         rgb = jnp.clip((warped_points[...,3:]), 0, 1)
       else:
         raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
+
+
+
+    for render_mode in self.extra_renders:
+      if render_mode == 'deformation':
+        rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) * self.deformation_render_scale
+      elif render_mode == 'deformation_norm':
+        rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
+        rgb = jnp.ones_like(rgb) * jnp.sqrt(jnp.sum(rgb ** 2, axis=-1, keepdims=True)) * self.deformation_render_scale
+      elif render_mode == 'time':
+        rgb = jnp.clip((warped_points[...,3:]), 0, 1)
+      else:
+        raise NotImplementedError(f'Rendering model {render_mode} is not recognized')
+      extra_render = model_utils.volumetric_rendering(
+                          rgb,
+                          sigma,
+                          z_vals,
+                          directions,
+                          use_white_background=self.use_white_background,
+                          sample_at_infinity=use_sample_at_infinity)
+      out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
 
     # Filter densities based on rendering options.
     sigma = filter_sigma(points, sigma, render_opts)
@@ -1154,6 +1182,8 @@ class DecomposeNerfModel(NerfModel):
 
   # Addition render modes options that will be included in the output for evaluation purpose
   extra_renders: tuple = ()
+  # Scale applied to deformation rendering
+  deformation_render_scale: float = 1.0
 
   # blending weight regularization loss
   use_blendw_loss: bool = True
@@ -1575,6 +1605,12 @@ class DecomposeNerfModel(NerfModel):
       # need to ensure range [0,1]. TODO: better normalization
       rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
       sigma = sigma_d * blendw + jnp.zeros_like(sigma_s) * blendw_rev
+    elif render_mode == 'deformation_norm':
+      # render the amount of deformation in dynamic component in norm
+      # need to ensure range [0,1]. TODO: better normalization
+      rgb = jnp.clip((warped_points[...,:3] - points), 0, 1)
+      rgb = jnp.ones_like(rgb) * jnp.sqrt(jnp.sum(rgb ** 2, axis=-1, keepdims=True)) * self.deformation_render_scale
+      sigma = sigma_d * blendw + jnp.zeros_like(sigma_s) * blendw_rev
     elif render_mode == 'time':
       # render the warped time coordinate
       rgb = jnp.clip((warped_points[...,3:]), 0, 1)
@@ -1934,6 +1970,12 @@ class DecomposeNerfModel(NerfModel):
           ex_rgb_s = jnp.zeros_like(ex_rgb_d)
           # ex_sigma_d = blendw
           # ex_sigma_s = 1. - blendw
+        elif render_mode == 'deformation_norm':
+          # render the amount of deformation in dynamic component in norm
+          # need to ensure range [0,1]. TODO: better normalization
+          rgb = jnp.clip((warped_points[...,:3] - points), 0, 1)
+          ex_rgb_d = ex_rgb_s = jnp.ones_like(rgb) * jnp.sqrt(jnp.sum(rgb ** 2, axis=-1, keepdims=True)) * self.deformation_render_scale
+          ex_sigma_s = jnp.zeros_like(ex_sigma_s)
         else:
           raise NotImplementedError(f'Rendering model {render_mode} is not recognized')
         

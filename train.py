@@ -514,7 +514,7 @@ def main(argv):
 
       save_dir = renders_dir
       
-      extra_render_tags = model.extra_renders if train_config.use_decompose_nerf else None
+      extra_render_tags = model.extra_renders
       process_iterator(tag='runtime_eval',
               item_ids=train_eval_ids,
               iterator=train_eval_iter,
