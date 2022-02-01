@@ -46,6 +46,7 @@ class ScalarParams:
   background_loss_weight: float = 0.0
   bg_decompose_loss_weight: float = 0.0
   blendw_loss_weight: float = 0.0
+  blendw_loss_skewness: float = 1.0
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0
@@ -210,15 +211,15 @@ def compute_bg_decompose_loss(model, state, params, key, coarse_key, fine_key, p
   return loss
 
 @functools.partial(jax.jit)
-def compute_blendw_loss(coarse_blendw, fine_blendw, clip_threshold=0.00001, alpha=-2, scale=0.001):
+def compute_blendw_loss(coarse_blendw, fine_blendw, clip_threshold=0.00001, skewness=1.0):
   """
   Compute the blendw loss based on entropy
+  skewness is used to control the skew of entropy loss. A value larger than 1.0 causes the peak to skew towards 1
   """
 
   blendw = jnp.concatenate([coarse_blendw, fine_blendw],-1)
-  blendw = jnp.clip(blendw, a_min=clip_threshold, a_max=1-clip_threshold)
-  ones = jnp.ones_like(blendw)
-  entropy = - (blendw * jnp.log(blendw) + (ones-blendw)*jnp.log(ones-blendw))
+  blendw = jnp.clip(blendw ** skewness, a_min=clip_threshold, a_max=1-clip_threshold)
+  entropy = - (blendw * jnp.log(blendw) + (1-blendw)*jnp.log(1-blendw))
 
   return entropy
 
@@ -467,7 +468,7 @@ def train_step(model: models.NerfModel,
       stats['bg_decompose_loss'] = bg_decompose_loss
 
     if isinstance(model,models.DecomposeNerfModel) and model.use_blendw_loss:
-      blendw_loss = compute_blendw_loss(ret['coarse']['blendw'], ret['fine']['blendw'])
+      blendw_loss = compute_blendw_loss(ret['coarse']['blendw'], ret['fine']['blendw'], skewness=scalar_params.blendw_loss_skewness)
       blendw_loss = blendw_loss.mean()
       losses['blendw_loss'] = (
         scalar_params.blendw_loss_weight * blendw_loss)

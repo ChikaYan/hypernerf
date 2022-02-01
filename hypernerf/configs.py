@@ -83,7 +83,7 @@ class TrainConfig:
   warp_alpha_schedule: Optional[ScheduleDef] = None
   # The schedule or the hyper sheet position encoding.
   hyper_alpha_schedule: Optional[ScheduleDef] = None
-  # The schedule or the hyper sheet position encoding. -- what is hyper_sheet??
+  # The schedule or the hyper sheet position encoding.
   hyper_sheet_alpha_schedule: Optional[ScheduleDef] = None
 
   # Whether to use the elastic regularization loss.
@@ -103,7 +103,11 @@ class TrainConfig:
   # The weight for the background loss.
   background_loss_weight: float = 0.0
   bg_decompose_loss_weight: float = 0.0
-  blendw_loss_weight: float = 0.0
+  # Fixed Adaptive blendw loss weight setting. Will only be used if blendw_loss_weight_schedule is None
+  # blendw_loss_weight: float = 0.0
+  # Adaptive blendw loss weight setting
+  blendw_loss_weight_schedule: Optional[ScheduleDef] = None
+  blendw_loss_skewness: float = 1.0
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0

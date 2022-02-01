@@ -1,7 +1,12 @@
 #!/bin/bash
 
-DATA_PATH='./data/kubric_car_sfm/'
-LOG_PATH='log/kubric_car_sfm/decompose_full_run_less_init/'
+# sbatch command: 
+# sbatch --export=app='./train_eval_decompose.sh' ./slurm_script/run_slurm.sh
+
+DATA_PATH='./data/my_hand/'
+LOG_PATH='log/my_hand/decompose_skewed_reg_with_time/'
+
+echo "Log path is: $LOG_PATH"
 
 python train.py --base_folder $LOG_PATH --gin_bindings="data_dir='$DATA_PATH'" --gin_configs configs/decompose/train.gin 
 

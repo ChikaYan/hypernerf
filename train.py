@@ -282,6 +282,7 @@ def main(argv):
       train_config.hyper_sheet_alpha_schedule)
   elastic_loss_weight_sched = schedules.from_config(
       train_config.elastic_loss_weight_schedule)
+  blendw_loss_weight_sched = schedules.from_config(train_config.blendw_loss_weight_schedule)
 
 
   if train_config.freeze_dynamic_steps > 0:
@@ -327,7 +328,8 @@ def main(argv):
       warp_reg_loss_scale=train_config.warp_reg_loss_scale,
       background_loss_weight=train_config.background_loss_weight,
       bg_decompose_loss_weight=train_config.bg_decompose_loss_weight,
-      blendw_loss_weight=train_config.blendw_loss_weight,
+      blendw_loss_weight=blendw_loss_weight_sched(0),
+      blendw_loss_skewness=train_config.blendw_loss_skewness,
       force_blendw_loss_weight=train_config.force_blendw_loss_weight,
       blendw_ray_loss_weight=train_config.blendw_ray_loss_weight,
       blendw_ray_loss_threshold=train_config.blendw_ray_loss_threshold,
@@ -399,7 +401,8 @@ def main(argv):
     # pytype: disable=attribute-error
     scalar_params = scalar_params.replace( # update the per-step params: lr and elastic loss
         learning_rate=learning_rate_sched(step),
-        elastic_loss_weight=elastic_loss_weight_sched(step))
+        elastic_loss_weight=elastic_loss_weight_sched(step),
+        blendw_loss_weight=blendw_loss_weight_sched(step))
     # pytype: enable=attribute-error
     nerf_alpha = jax_utils.replicate(nerf_alpha_sched(step), devices)
     warp_alpha = jax_utils.replicate(warp_alpha_sched(step), devices)
