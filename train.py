@@ -33,6 +33,7 @@ import numpy as np
 import tensorflow as tf
 import pdb
 from jax.config import config as jax_config
+import shutil
 
 
 from hypernerf import configs
@@ -348,6 +349,9 @@ def main(argv):
       f.write(config_str)
     summary_writer = tensorboard.SummaryWriter(str(summary_dir))
     summary_writer.text('gin/train', textdata=gin.markdown(config_str), step=0)
+
+    # copy source gin config for better readability
+    shutil.copy(gin_configs[0], exp_dir / 'source.gin')
 
   train_step = functools.partial(
       training.train_step, # rng_key, state, batch, scalar_params

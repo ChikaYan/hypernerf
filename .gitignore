@@ -79,3 +79,5 @@ machine.file.*
 slurm-*.out
 
 slurm_script/
+
+log_test/

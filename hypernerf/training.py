@@ -247,7 +247,7 @@ def compute_blendw_ray_loss(coarse_blendw, fine_blendw, mask_thresold=1., clip_t
     blendw_sum = jnp.sum(blendw, -1, keepdims=True) 
     mask = jnp.where(blendw_sum < mask_thresold, 0., 1.) 
     p = blendw / blendw_sum 
-    entropy = mask * -jnp.sum(p * jnp.log(p), -1, keepdims=True) 
+    entropy = mask * -jnp.mean(p * jnp.log(p), -1, keepdims=True) # change from sum to mean to make scale of number more comparable
     loss += entropy.mean()
 
   return loss / 2.
@@ -468,6 +468,12 @@ def train_step(model: models.NerfModel,
       stats['bg_decompose_loss'] = bg_decompose_loss
 
     if isinstance(model,models.DecomposeNerfModel) and model.use_blendw_loss:
+      # only apply blendw loss when blendw is not forced
+      # blendw_loss = jax.lax.cond(
+      #   state.extra_params['force_blendw'], 
+      #   lambda *args: 0.,
+      #   compute_blendw_loss, 
+      #   ret['coarse']['blendw'], ret['fine']['blendw'], scalar_params.blendw_loss_skewness)   
       blendw_loss = compute_blendw_loss(ret['coarse']['blendw'], ret['fine']['blendw'], skewness=scalar_params.blendw_loss_skewness)
       blendw_loss = blendw_loss.mean()
       losses['blendw_loss'] = (
@@ -479,16 +485,15 @@ def train_step(model: models.NerfModel,
         compute_force_blendw_loss, 
         lambda *args: 0.,
         ret['coarse']['blendw'], ret['fine']['blendw'], state.extra_params['freeze_blendw_value'])   
-
       losses['force_blendw_loss'] = scalar_params.force_blendw_loss_weight * force_blendw_loss
       stats['force_blendw_loss'] = force_blendw_loss
 
+      # only apply ray entropy loss when blendw is not forced
       blendw_ray_loss = jax.lax.cond(
         state.extra_params['force_blendw'], 
         lambda *args: 0.,
         compute_blendw_ray_loss, 
         ret['coarse']['blendw'], ret['fine']['blendw'], scalar_params.blendw_ray_loss_threshold)   
-
       # blendw_ray_loss = compute_blendw_ray_loss(ret['coarse']['blendw'], ret['fine']['blendw'], scalar_params.blendw_ray_loss_threshold)   
       losses['blendw_ray_loss'] = (
         scalar_params.blendw_ray_loss_weight * blendw_ray_loss)

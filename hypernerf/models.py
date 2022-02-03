@@ -1976,6 +1976,32 @@ class DecomposeNerfModel(NerfModel):
           rgb = jnp.clip((warped_points[...,:3] - points), 0, 1)
           ex_rgb_d = ex_rgb_s = jnp.ones_like(rgb) * jnp.sqrt(jnp.sum(rgb ** 2, axis=-1, keepdims=True)) * self.deformation_render_scale
           ex_sigma_s = jnp.zeros_like(ex_sigma_s)
+        elif render_mode == 'ray_segmentation':
+          # render whether the sum of blendw on a ray is above a threshold or not
+          # volume rendering not needed
+          threshold = 0.5
+          clip_threshold=0.00001
+          ex_blendw = jnp.clip(blendw, a_min=clip_threshold)
+          blendw_sum = jnp.sum(ex_blendw, -1, keepdims=True) 
+          mask = jnp.where(blendw_sum < threshold, 0., 1.) 
+
+          out[f'extra_rgb_{render_mode}'] =  mask * jnp.array([1,0,0])
+          continue
+        elif render_mode == 'ray_entropy_loss':
+          # render the amount of blendw entropy loss applied on each ray
+          # volume rendering not needed
+          threshold = 0.5
+          clip_threshold=0.00001
+          ex_blendw = jnp.clip(blendw, a_min=clip_threshold)
+          blendw_sum = jnp.sum(ex_blendw, -1, keepdims=True) 
+          mask = jnp.where(blendw_sum < threshold, 0., 1.) 
+          p = ex_blendw / blendw_sum 
+          entropy = mask * -jnp.mean(p * jnp.log(p), -1, keepdims=True)
+          # maximum value of -p * jnp.log(p) is 1/e
+          entropy *= jnp.e
+
+          out[f'extra_rgb_{render_mode}'] = entropy * jnp.array([1,0,0])
+          continue
         else:
           raise NotImplementedError(f'Rendering model {render_mode} is not recognized')
         
