@@ -110,6 +110,7 @@ class TrainConfig:
   blendw_loss_skewness: float = 1.0
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
+  blendw_area_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0
   # The batch size for background regularization loss.
   background_points_batch_size: int = 16384
@@ -162,6 +163,8 @@ class TrainConfig:
   # Use provided dynmaic object mask to separately train the dynamic and static component
   use_mask_sep_train: bool = False
 
+  # Regularize the decompose model using rays combined with different time frame
+  use_ex_ray_entropy_loss: bool = False
 
 @gin.configurable()
 @dataclasses.dataclass

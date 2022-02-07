@@ -50,6 +50,7 @@ class ScalarParams:
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0
+  blendw_area_loss_weight: float = 0.0
   background_noise_std: float = 0.001
   hyper_reg_loss_weight: float = 0.0
 
@@ -252,6 +253,20 @@ def compute_blendw_ray_loss(coarse_blendw, fine_blendw, mask_thresold=1., clip_t
 
   return loss / 2.
 
+
+@functools.partial(jax.jit)
+def compute_blendw_area_loss(coarse_blendw, fine_blendw, clip_threshold=0.00001):
+  """
+  Compute loss that encourage blendw to stay concentrated on a ray
+  """
+  loss = 0.
+
+  for blendw in [coarse_blendw, fine_blendw]:
+    area_loss = jnp.max(blendw, axis=-1) # mask * jnp.log(jnp.sum(blendw, -1, keepdims=True)) #
+    loss += area_loss.mean()
+
+  return loss / 2.
+
 @functools.partial(jax.jit,
                    static_argnums=0,
                    static_argnames=('disable_hyper_grads',
@@ -264,7 +279,8 @@ def compute_blendw_ray_loss(coarse_blendw, fine_blendw, mask_thresold=1., clip_t
                                     'use_warp_reg_loss',
                                     'use_hyper_reg_loss',
                                     'use_bg_decompose_loss',
-                                    'multi_optimizer'))
+                                    'multi_optimizer',
+                                    'use_ex_ray_entropy_loss'))
 def train_step(model: models.NerfModel,
                rng_key: Callable[[int], jnp.ndarray],
                state: model_utils.TrainState,
@@ -280,7 +296,8 @@ def train_step(model: models.NerfModel,
                use_bg_decompose_loss: bool = False,
                use_warp_reg_loss: bool = False,
                use_hyper_reg_loss: bool = False,
-               multi_optimizer: bool = False):
+               multi_optimizer: bool = False,
+               use_ex_ray_entropy_loss: bool = False):
   """One optimization step.
 
   Args:
@@ -489,16 +506,43 @@ def train_step(model: models.NerfModel,
       stats['force_blendw_loss'] = force_blendw_loss
 
       # only apply ray entropy loss when blendw is not forced
-      blendw_ray_loss = jax.lax.cond(
-        state.extra_params['force_blendw'], 
-        lambda *args: 0.,
-        compute_blendw_ray_loss, 
-        ret['coarse']['blendw'], ret['fine']['blendw'], scalar_params.blendw_ray_loss_threshold)   
-      # blendw_ray_loss = compute_blendw_ray_loss(ret['coarse']['blendw'], ret['fine']['blendw'], scalar_params.blendw_ray_loss_threshold)   
+      # blendw_ray_loss = jax.lax.cond(
+      #   state.extra_params['force_blendw'], 
+      #   lambda *args: 0.,
+      #   compute_blendw_ray_loss, 
+      #   ret['coarse']['blendw'], ret['fine']['blendw'], scalar_params.blendw_ray_loss_threshold)   
+      blendw_ray_loss = compute_blendw_ray_loss(ret['coarse']['blendw'], ret['fine']['blendw'], scalar_params.blendw_ray_loss_threshold)   
       losses['blendw_ray_loss'] = (
         scalar_params.blendw_ray_loss_weight * blendw_ray_loss)
       stats['blendw_ray_loss'] = blendw_ray_loss
-        
+      blendw_area_loss = compute_blendw_area_loss(ret['coarse']['blendw'], ret['fine']['blendw'])   
+      losses['blendw_area_loss'] = (
+        scalar_params.blendw_area_loss_weight * blendw_area_loss)
+      stats['blendw_area_loss'] = blendw_area_loss
+      
+      if use_ex_ray_entropy_loss:
+        # calculate ray entropy regularization at a different time stamp
+        ex_batch = batch.copy()
+        ex_batch['metadata'] = ex_batch['ex_metadata']
+        ex_ret = model.apply({'params': params['model']},
+                          ex_batch,
+                          extra_params=state.extra_params,
+                          return_points=(use_warp_reg_loss or use_hyper_reg_loss),
+                          return_weights=(use_warp_reg_loss or use_elastic_loss), # whether return density weights
+                          return_warp_jacobian=use_elastic_loss,
+                          rngs={
+                              'fine': fine_key,
+                              'coarse': coarse_key
+                          })
+        ex_blendw_ray_loss = compute_blendw_ray_loss(ex_ret['coarse']['blendw'], ex_ret['fine']['blendw'], scalar_params.blendw_ray_loss_threshold)
+        ex_density_ray_loss = compute_blendw_ray_loss(ex_ret['coarse']['density_d'], ex_ret['fine']['density_d'], scalar_params.blendw_ray_loss_threshold)
+
+        losses['ex_blendw_ray_loss'] = (
+            scalar_params.blendw_ray_loss_weight * ex_blendw_ray_loss)
+        stats['ex_blendw_ray_loss'] = ex_blendw_ray_loss
+        losses['ex_density_ray_loss'] = (
+            scalar_params.blendw_ray_loss_weight * ex_density_ray_loss)
+        stats['ex_density_ray_loss'] = ex_density_ray_loss
 
     return sum(losses.values()), (stats, ret)
 

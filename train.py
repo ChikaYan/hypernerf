@@ -90,6 +90,9 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/blendw_loss', stats.get('blendw_loss'))
   _log_scalar('loss/force_blendw_loss', stats.get('force_blendw_loss'))
   _log_scalar('loss/blendw_ray_loss', stats.get('blendw_ray_loss'))
+  _log_scalar('loss/blendw_area_loss', stats.get('blendw_area_loss'))
+  _log_scalar('loss/ex_blendw_ray_loss', stats.get('ex_blendw_ray_loss'))
+  _log_scalar('loss/ex_density_ray_loss', stats.get('ex_density_ray_loss'))
 
   for k, v in time_dict.items():
     writer.scalar(f'time/{k}', v, step)
@@ -334,6 +337,7 @@ def main(argv):
       force_blendw_loss_weight=train_config.force_blendw_loss_weight,
       blendw_ray_loss_weight=train_config.blendw_ray_loss_weight,
       blendw_ray_loss_threshold=train_config.blendw_ray_loss_threshold,
+      blendw_area_loss_weight=train_config.blendw_area_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
   print(f'Loaded step {state.optimizer.state.step}')
@@ -363,7 +367,8 @@ def main(argv):
       use_bg_decompose_loss=train_config.use_bg_decompose_loss,
       use_warp_reg_loss=train_config.use_warp_reg_loss,
       use_hyper_reg_loss=train_config.use_hyper_reg_loss,
-      multi_optimizer=multi_optimizer)
+      multi_optimizer=multi_optimizer,
+      use_ex_ray_entropy_loss=train_config.use_ex_ray_entropy_loss,)
 
   if FLAGS.debug:
     # vmap version for debugging
@@ -441,6 +446,36 @@ def main(argv):
       else:
         # static batch
         freeze_dynamic = False
+
+    # Sample additional ray batch,
+    # which contains unseen combination of time + view
+    # Used for regularization
+    if train_config.use_ex_ray_entropy_loss:
+      test_rng = random.PRNGKey(step)
+      shape = batch['origins'][..., :1].shape
+      metadata = {}
+      if datasource.use_warp_id:
+        warp_id = random.choice(test_rng, jnp.asarray(datasource.warp_ids))
+        metadata['warp'] = jnp.full(shape, fill_value=warp_id, dtype=jnp.uint32)
+
+      # following two are usually not used
+      if datasource.use_appearance_id:
+        appearance_id = random.choice(
+            test_rng, jnp.asarray(datasource.appearance_ids))
+        metadata['appearance'] = jnp.full(shape, fill_value=appearance_id,
+                                          dtype=jnp.uint32)
+      if datasource.use_camera_id:
+        camera_id = random.choice(test_rng, jnp.asarray(datasource.camera_ids))
+        metadata['camera'] = jnp.full(shape, fill_value=camera_id,
+                                      dtype=jnp.uint32)
+      if datasource.use_time:
+        timestamp = random.uniform(test_rng, minval=0.0, maxval=1.0)
+        metadata['time'] = jnp.full(
+            shape, fill_value=timestamp, dtype=jnp.uint32)
+
+      batch['ex_metadata'] = metadata
+    else:
+      batch['ex_metadata'] = None
 
     with time_tracker.record_time('train_step'):
       state, stats, keys, model_out = ptrain_step(

@@ -500,7 +500,7 @@ class NerfModel(nn.Module):
       if metadata_encoded:
         warp_embed = metadata['encoded_warp']
       else:
-        warp_embed = metadata[self.warp_embed_key]
+        warp_embed = metadata[self.warp_embed_key] # self.hyper_embed_key: warp
         warp_embed = self.warp_embed(warp_embed) # embed each key (integer) to 8 digit vector
     else:
       warp_embed = None
@@ -558,16 +558,16 @@ class NerfModel(nn.Module):
 
     for render_mode in self.extra_renders:
       if render_mode == 'deformation':
-        rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) * self.deformation_render_scale
+        ex_rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) * self.deformation_render_scale
       elif render_mode == 'deformation_norm':
-        rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
-        rgb = jnp.ones_like(rgb) * jnp.sqrt(jnp.sum(rgb ** 2, axis=-1, keepdims=True)) * self.deformation_render_scale
+        ex_rgb = jnp.clip((warped_points[...,:3] - points), 0, 1) 
+        ex_rgb = jnp.ones_like(ex_rgb) * jnp.sqrt(jnp.sum(ex_rgb ** 2, axis=-1, keepdims=True)) * self.deformation_render_scale
       elif render_mode == 'time':
-        rgb = jnp.clip((warped_points[...,3:]), 0, 1)
+        ex_rgb = jnp.clip((warped_points[...,3:]), 0, 1)
       else:
         raise NotImplementedError(f'Rendering model {render_mode} is not recognized')
       extra_render = model_utils.volumetric_rendering(
-                          rgb,
+                          ex_rgb,
                           sigma,
                           z_vals,
                           directions,
@@ -1358,7 +1358,7 @@ class DecomposeNerfModel(NerfModel):
           use_identity=self.use_posenc_identity)
       rgb_conditions.append(viewdirs_feat)
 
-    if self.use_nerf_embed:
+    if self.use_nerf_embed: # usually false, enabled to allow radiance to condition on appearance code
       if metadata_encoded:
         nerf_embed = metadata['encoded_nerf']
       else:
@@ -1852,7 +1852,7 @@ class DecomposeNerfModel(NerfModel):
       if metadata_encoded:
         warp_embed = metadata['encoded_warp']
       else:
-        warp_embed = metadata[self.warp_embed_key]
+        warp_embed = metadata[self.warp_embed_key] # warp
         warp_embed = self.warp_embed(warp_embed) # embed each key (integer) to 8 digit vector
     else:
       warp_embed = None
@@ -1861,7 +1861,7 @@ class DecomposeNerfModel(NerfModel):
     if self.has_hyper_embed:
       if metadata_encoded:
         hyper_embed = metadata['encoded_hyper']
-      elif self.hyper_use_warp_embed:
+      elif self.hyper_use_warp_embed: # True: hyper does not use appearance but only warp
         hyper_embed = warp_embed # hyper embed is just the warp embed
       else:
         hyper_embed = metadata[self.hyper_embed_key]
@@ -2026,6 +2026,8 @@ class DecomposeNerfModel(NerfModel):
         # Unsqueeze axes: sample axis, coords.
         warped_points, depth_indices[..., None, None], axis=-2)
     out['med_points'] = med_points
+
+    out['density_d'] = sigma_d
 
     return out
 
