@@ -1940,6 +1940,7 @@ class DecomposeNerfModel(NerfModel):
                             sample_at_infinity=use_sample_at_infinity)
         out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
     elif self.blend_mode == 'nsff':
+      # blendw = jnp.zeros_like(blendw)
       out.update(model_utils.volumetric_rendering_blending(
           rgb_d,
           sigma_d,

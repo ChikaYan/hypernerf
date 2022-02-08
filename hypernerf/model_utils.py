@@ -157,6 +157,62 @@ def volumetric_rendering(rgb,
   return out
 
 
+def volumetric_rendering_addition(rgb_d,
+                                  sigma_d,
+                                  rgb_s,
+                                  sigma_s,
+                                  blendw,
+                                  z_vals,
+                                  dirs,
+                                  use_white_background,
+                                  sample_at_infinity=True,
+                                  eps=1e-10):
+  """
+  Volumetric Rendering Function with Blending
+  """
+  last_sample_z = 1e10 if sample_at_infinity else 1e-19
+  dists = jnp.concatenate([ # distance between each sample along a ray
+      z_vals[..., 1:] - z_vals[..., :-1],
+      jnp.broadcast_to([last_sample_z], z_vals[..., :1].shape)
+  ], -1)
+  dists = dists * jnp.linalg.norm(dirs[..., None, :], axis=-1)
+
+  alpha_d = (1.0 - jnp.exp(-sigma_d * dists))
+  alpha_s = (1.0 - jnp.exp(-sigma_s * dists))
+  alpha_both = (1.0 - jnp.exp(-(sigma_d + sigma_s) * dists))
+  # Prepend a 1.0 to make this an 'exclusive' cumprod as in `tf.math.cumprod`.
+  Ts = jnp.concatenate([
+      jnp.ones_like(alpha_both[..., :1], alpha_both.dtype),
+      jnp.cumprod(1.0 - alpha_both[..., :-1] + eps, axis=-1),
+  ], axis=-1)
+
+  weights_d = alpha_d * Ts
+  weights_s = alpha_s * Ts
+
+  rgb = (weights_d[..., None] * rgb_d + weights_s[..., None] * rgb_s).sum(axis=-2)
+
+  # TODO: verify depth and accuracy computation
+  exp_depth = ((weights_d + weights_s)  * z_vals).sum(axis=-1)
+  med_depth = compute_depth_map((weights_d + weights_s), z_vals)
+  acc = (weights_d + weights_s).sum(axis=-1)
+  if use_white_background:
+    rgb = rgb + (1. - acc[..., None])
+
+  if sample_at_infinity:
+    acc = (weights_d + weights_s)[..., :-1].sum(axis=-1)
+
+  out = {
+      'rgb': rgb,
+      'depth': exp_depth,
+      'med_depth': med_depth,
+      'acc': acc,
+      'weights': (weights_d + weights_s),
+      'weights_dynamic': weights_d,
+      'weights_static' : weights_s
+  }
+  return out
+
+
 def volumetric_rendering_blending(rgb_d,
                                   sigma_d,
                                   rgb_s,

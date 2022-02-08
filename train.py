@@ -22,6 +22,7 @@ from absl import flags
 from absl import logging
 from flax import jax_utils
 from flax import optim
+from flax.core import freeze
 from flax.metrics import tensorboard
 from flax.training import checkpoints
 from flax import traverse_util
@@ -290,9 +291,15 @@ def main(argv):
 
 
   if train_config.freeze_dynamic_steps > 0:
-    if not train_config.use_decompose_nerf:
-      raise NotImplementedError('freeze_dynamic_steps can only be set when using decompose nerf!')
+    multi_optimizer = True
+  else:
+    multi_optimizer = False
 
+  # multi_optimizer = True
+
+  if multi_optimizer:
+    if not train_config.use_decompose_nerf:
+      raise NotImplementedError('multi_optimizer can only be set when using decompose nerf!')
     # seperate the optimizer for static and dynamic components 
     static_traversal = traverse_util.ModelParamTraversal(lambda path, _: 'static_nerf' in path)
     dynamic_traversal = traverse_util.ModelParamTraversal(lambda path, _: 'static_nerf' not in path)
@@ -304,12 +311,10 @@ def main(argv):
       dynamic_opt = optim.WeightNorm(dynamic_opt)
 
     optimizer_def = optim.MultiOptimizer((static_traversal, static_opt),((dynamic_traversal, dynamic_opt)))
-    multi_optimizer = True
   else:
     optimizer_def = optim.Adam(learning_rate_sched(0))
     if train_config.use_weight_norm:
       optimizer_def = optim.WeightNorm(optimizer_def)
-    multi_optimizer = False
 
   optimizer = optimizer_def.create(params)
 
@@ -339,7 +344,19 @@ def main(argv):
       blendw_ray_loss_threshold=train_config.blendw_ray_loss_threshold,
       blendw_area_loss_weight=train_config.blendw_area_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
+  new_state = state
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
+
+  # # to restore only static model:
+  # params = state.optimizer.target['model'].unfreeze()
+  # params['hyper_sheet_mlp'] = new_state.optimizer.target['model']['hyper_sheet_mlp']
+  # params['nerf_mlps_coarse'] = new_state.optimizer.target['model']['nerf_mlps_coarse']
+  # params['nerf_mlps_fine'] = new_state.optimizer.target['model']['nerf_mlps_fine']
+  # params['warp_embed'] = new_state.optimizer.target['model']['warp_embed']
+  # params['warp_field'] = new_state.optimizer.target['model']['warp_field']
+  # params = freeze(params)
+  # state.optimizer.replace(target=params)
+
   print(f'Loaded step {state.optimizer.state.step}')
   init_step = state.optimizer.state.step + 1
   state = jax_utils.replicate(state, devices=devices)
