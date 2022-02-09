@@ -1,22 +1,20 @@
 include 'configs/test_local.gin'
 
 image_scale = 4
-max_steps = 50000
+max_steps = 100000
 
 TrainConfig.use_decompose_nerf = True
 
-StaticNerfModel.use_viewdirs = False
 StaticNerfModel.num_coarse_samples = 64
 StaticNerfModel.num_fine_samples = 64
-StaticNerfModel.use_viewdirs = True
+StaticNerfModel.use_viewdirs = False # True
 StaticNerfModel.use_stratified_sampling = True
 StaticNerfModel.norm_type = 'none'
 StaticNerfModel.activation = @jax.nn.relu
 
-DecomposeNerfModel.use_viewdirs = False
 DecomposeNerfModel.num_coarse_samples = 64
 DecomposeNerfModel.num_fine_samples = 64
-DecomposeNerfModel.use_viewdirs = True
+DecomposeNerfModel.use_viewdirs = False # True
 DecomposeNerfModel.use_stratified_sampling = True
 DecomposeNerfModel.norm_type = 'none'
 DecomposeNerfModel.activation = @jax.nn.relu
@@ -32,7 +30,7 @@ DecomposeNerfModel.blendw_out_depth = 7
 TrainConfig.print_every = 100
 TrainConfig.log_every = 100
 TrainConfig.histogram_every = 100
-TrainConfig.save_every = 1000
+TrainConfig.save_every = 2000
 TrainConfig.use_background_loss = False
 TrainConfig.use_bg_decompose_loss = False
 TrainConfig.bg_decompose_loss_weight = 1.0
@@ -45,17 +43,21 @@ TrainConfig.blendw_loss_weight_schedule = {
   'num_steps': 100000 #%max_steps,
 }
 TrainConfig.blendw_loss_skewness = 1.5
-TrainConfig.blendw_ray_loss_weight = 0.0001
+TrainConfig.blendw_ray_loss_weight = 0.01
 TrainConfig.blendw_ray_loss_threshold = .5
+TrainConfig.use_ex_ray_entropy_loss = True
+TrainConfig.blendw_area_loss_weight = 0.001
+TrainConfig.shadow_loss_threshold = 0.2
+TrainConfig.shadow_loss_weight = 0.01
 
 # initialize static model for some iterations first
 TrainConfig.fix_blendw_steps = 0
-TrainConfig.force_blendw_steps = 1000
+TrainConfig.force_blendw_steps = 0
 TrainConfig.force_blendw_loss_weight = .1
 TrainConfig.fix_blendw_value = 0.15
 
 DecomposeNerfModel.blend_mode = 'nsff'
-DecomposeNerfModel.extra_renders = ('static_full', 'dynamic', 'blendw')
+DecomposeNerfModel.extra_renders = ('static_full', 'dynamic', 'blendw', 'shadow_loss_segmentation')
 DecomposeNerfModel.deformation_render_scale = 2.0
 
 EvalConfig.eval_once = True
@@ -71,7 +73,7 @@ EvalConfig.num_fixed_time_views = -1
 EvalConfig.use_train_views = True
 EvalConfig.fix_view_eval = True
 EvalConfig.num_fixed_view_frames = -1
-EvalConfig.niter_runtime_eval = 5000
+EvalConfig.niter_runtime_eval = 10000
 EvalConfig.nimg_runtime_eval = 5
 
 NerfiesDataSource.use_gt_camera = False
