@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict
 
 from absl import logging
 import flax
+from flax import linen as nn
 from flax import struct
 from flax import traverse_util
 from flax.linen.module import init
@@ -51,6 +52,8 @@ class ScalarParams:
   blendw_ray_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0
   blendw_area_loss_weight: float = 0.0
+  shadow_loss_threshold: float = 0.2
+  shadow_loss_weight: float = 0.0
   background_noise_std: float = 0.001
   hyper_reg_loss_weight: float = 0.0
 
@@ -262,8 +265,24 @@ def compute_blendw_area_loss(coarse_blendw, fine_blendw, clip_threshold=0.00001)
   loss = 0.
 
   for blendw in [coarse_blendw, fine_blendw]:
-    area_loss = jnp.max(blendw, axis=-1) # mask * jnp.log(jnp.sum(blendw, -1, keepdims=True)) #
+    area_loss = jnp.max(blendw, axis=-1) ** 2 # mask * jnp.log(jnp.sum(blendw, -1, keepdims=True)) #
     loss += area_loss.mean()
+
+  return loss / 2.
+
+@functools.partial(jax.jit)
+def compute_shadow_loss(rets, threshold=0.2):
+  """
+  If a location exists blending from both components, then enforce dynamic component to predict lower radiance
+  This is to encourage it to correctly learn the shadow
+  """
+  loss = 0.
+
+  for label in ['coarse', 'fine']:
+    ret = rets[label]
+    mask = jnp.where(threshold < ret['blendw'], 1., 0.) * jnp.where(ret['blendw'] < 1-threshold, 1., 0.) 
+    diff = (nn.relu(ret['rgb_d'] - ret['rgb_s']) * mask[..., None]) ** 2
+    loss += diff.mean()
 
   return loss / 2.
 
@@ -515,11 +534,30 @@ def train_step(model: models.NerfModel,
       losses['blendw_ray_loss'] = (
         scalar_params.blendw_ray_loss_weight * blendw_ray_loss)
       stats['blendw_ray_loss'] = blendw_ray_loss
+
       blendw_area_loss = compute_blendw_area_loss(ret['coarse']['blendw'], ret['fine']['blendw'])   
       losses['blendw_area_loss'] = (
         scalar_params.blendw_area_loss_weight * blendw_area_loss)
       stats['blendw_area_loss'] = blendw_area_loss
-      
+
+
+      input_dict = {
+        'coarse': {
+          'blendw': ret['coarse']['blendw'],
+          'rgb_d': ret['coarse']['rgb_d'],
+          'rgb_s': ret['coarse']['rgb_s']
+          },
+        'fine': {
+          'blendw': ret['fine']['blendw'],
+          'rgb_d': ret['fine']['rgb_d'],
+          'rgb_s': ret['fine']['rgb_s']
+          }
+      }
+      shadow_loss = compute_shadow_loss(input_dict, scalar_params.shadow_loss_threshold)   
+      losses['shadow_loss'] = (
+        scalar_params.shadow_loss_weight * shadow_loss)
+      stats['shadow_loss'] = shadow_loss
+
       if use_ex_ray_entropy_loss:
         # calculate ray entropy regularization at a different time stamp
         ex_batch = batch.copy()

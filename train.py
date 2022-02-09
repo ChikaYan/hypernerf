@@ -92,6 +92,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/force_blendw_loss', stats.get('force_blendw_loss'))
   _log_scalar('loss/blendw_ray_loss', stats.get('blendw_ray_loss'))
   _log_scalar('loss/blendw_area_loss', stats.get('blendw_area_loss'))
+  _log_scalar('loss/shadow_loss', stats.get('shadow_loss'))
   _log_scalar('loss/ex_blendw_ray_loss', stats.get('ex_blendw_ray_loss'))
   _log_scalar('loss/ex_density_ray_loss', stats.get('ex_density_ray_loss'))
 
@@ -343,6 +344,8 @@ def main(argv):
       blendw_ray_loss_weight=train_config.blendw_ray_loss_weight,
       blendw_ray_loss_threshold=train_config.blendw_ray_loss_threshold,
       blendw_area_loss_weight=train_config.blendw_area_loss_weight,
+      shadow_loss_threshold=train_config.shadow_loss_threshold,
+      shadow_loss_weight=train_config.shadow_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   new_state = state
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)

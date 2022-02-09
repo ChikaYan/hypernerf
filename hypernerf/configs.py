@@ -112,6 +112,8 @@ class TrainConfig:
   blendw_ray_loss_weight: float = 0.0
   blendw_area_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0
+  shadow_loss_threshold: float = 0.2
+  shadow_loss_weight: float = 0.0
   # The batch size for background regularization loss.
   background_points_batch_size: int = 16384
   # Whether to use the warp reg loss.

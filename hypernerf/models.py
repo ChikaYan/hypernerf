@@ -1190,6 +1190,10 @@ class DecomposeNerfModel(NerfModel):
   # where to output blendw. -1 means outputting together with density (last layer)
   blendw_out_depth: int = -1
 
+  # Whether to use an additional shadow model to deal with dynamic shadow effects
+  # use_shadow_model: bool = False
+
+
   @property
   def num_nerf_embeds(self):
     return max(self.embeddings_dict[self.nerf_embed_key]) + 1
@@ -1343,6 +1347,11 @@ class DecomposeNerfModel(NerfModel):
           rgb_channels=self.rgb_channels,
           blendw_output_depth=self.blendw_out_depth)
     self.nerf_mlps = nerf_mlps
+
+    # if self.use_shadow_model:
+    #   if not self.use_warp:
+    #     raise NotImplementedError('Shadow model can only be used when use_warp is true')
+    #   self.shadow_warp_field = self.warp_field_cls()
 
   def get_condition_inputs(self, viewdirs, metadata, metadata_encoded=False):
     """Create the condition inputs for the NeRF template. -- basically additional inputs, for example view directions for RGB query"""
@@ -1500,6 +1509,7 @@ class DecomposeNerfModel(NerfModel):
     return warped_points, warp_jacobian
 
   def apply_warp(self, points, warp_embed, extra_params):
+    # used only for background nomarlizaion
     warp_embed = self.warp_embed(warp_embed)
     return self.warp_field(points, warp_embed, extra_params)
 
@@ -2003,6 +2013,17 @@ class DecomposeNerfModel(NerfModel):
 
           out[f'extra_rgb_{render_mode}'] = entropy * jnp.array([1,0,0])
           continue
+        elif render_mode == 'shadow_loss_segmentation':
+          # render the parts where shadow loss is casted
+          # volume rendering not needed
+          threshold = 0.2
+          mask = jnp.where(threshold < blendw, 1., 0.) * jnp.where(blendw < 1-threshold, 1., 0.) 
+          diff = jnp.average(nn.relu(rgb_d - rgb_s), axis=-1)
+          mask = jnp.where(diff > 0, 1., 0.) * mask
+          mask = jnp.max(mask, axis=-1, keepdims=True)
+
+          out[f'extra_rgb_{render_mode}'] = mask * jnp.array([0,1,0])
+          continue
         else:
           raise NotImplementedError(f'Rendering model {render_mode} is not recognized')
         
@@ -2029,6 +2050,8 @@ class DecomposeNerfModel(NerfModel):
     out['med_points'] = med_points
 
     out['density_d'] = sigma_d
+    out['rgb_d'] = rgb_d
+    out['rgb_s'] = rgb_s
 
     return out
 
