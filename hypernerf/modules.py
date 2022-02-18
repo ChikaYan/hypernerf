@@ -388,3 +388,26 @@ class HyperSheetMLP(nn.Module):
       return mlp(inputs) + embed
     else:
       return mlp(inputs)
+
+
+
+@gin.configurable(denylist=['name'])
+class BlurMLP(nn.Module):
+  """An MLP that predicts motion blur weight and time-varying ratio."""
+  output_channels: int = 2
+
+  depth: int = 4
+  width: int = 64
+  hidden_init: types.Initializer = jax.nn.initializers.glorot_uniform()
+  # output_init: types.Initializer = jax.nn.initializers.normal(1e-5)
+  output_init: types.Initializer = jax.nn.initializers.glorot_uniform()
+
+  @nn.compact
+  def __call__(self, embed):
+    mlp = MLP(depth=self.depth,
+              width=self.width,
+              hidden_init=self.hidden_init,
+              output_channels=self.output_channels,
+              output_init=self.output_init)
+
+    return mlp(embed)

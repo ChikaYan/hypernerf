@@ -34,10 +34,25 @@
             "console": "integratedTerminal",
             "args": [
                 "--base_folder",
-                "log/my_hand/skewed_reg/decompose_shadow_loss",
-                "--gin_bindings=\"data_dir='./data/my_hand/'\"",
+                "debug/decompose",
+                "--gin_bindings=\"data_dir='./data/my_hand_large_motion/'\"",
                 "--gin_configs",
                 "configs/decompose/train.gin",
+                "--debug"
+            ]
+        },
+        {
+            "name": "train_decompose_debug",
+            "type": "python",
+            "request": "launch",
+            "program": "train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--base_folder",
+                "log/my_hand_large_motion/render_debug/add_blending_v5_no_far_d_new",
+                "--gin_bindings=\"data_dir='./data/my_hand_large_motion/'\"",
+                "--gin_configs",
+                "configs/decompose/train_debug.gin",
                 "--debug"
             ]
         },
@@ -103,17 +118,17 @@
             ]
         },
         {
-            "name": "eval_decompose_dy_valid",
+            "name": "eval_decompose",
             "type": "python",
             "request": "launch",
             "program": "eval.py",
             "console": "integratedTerminal",
             "args": [
                 "--base_folder",
-                "log/kubric_car_scam/decompose_freeze_blendw/",
-                "--gin_bindings=\"data_dir='./data/kubric_car_scam/'\"",
+                "log/my_hand_large_motion/render_debug/add_blending_v3_blendw_sample_loss/",
+                "--gin_bindings=\"data_dir='./data/my_hand_large_motion/'\"",
                 "--gin_configs",
-                "configs/decompose/eval_decompose_dy_valid.gin",
+                "configs/decompose/eval_debug.gin",
                 "--debug"
             ]
         },

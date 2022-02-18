@@ -114,6 +114,7 @@ class TrainConfig:
   blendw_ray_loss_threshold: float = 1.0
   shadow_loss_threshold: float = 0.2
   shadow_loss_weight: float = 0.0
+  blendw_sample_loss_weight: float = 0.0
   # The batch size for background regularization loss.
   background_points_batch_size: int = 16384
   # Whether to use the warp reg loss.
@@ -225,3 +226,6 @@ class EvalConfig:
   niter_runtime_eval: int = 1000
   # Number of training images rendered for runtime evaluation
   nimg_runtime_eval: int = 1
+  # Specific number of frames that need to be rendered for runtime eval
+  # Those will be rendered in additional to the targets chosen from nimg_runtime_eval
+  ex_runtime_eval_targets: tuple = ()

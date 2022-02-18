@@ -334,8 +334,8 @@ class Camera:
         pixel_aspect_ratio=self.pixel_aspect_ratio,
         radial_distortion=self.radial_distortion.copy(),
         tangential_distortion=self.tangential_distortion.copy(),
-        image_size=np.array((int(round(self.image_size[0] * scale)),
-                             int(round(self.image_size[1] * scale)))),
+        image_size=np.array((int(self.image_size[0] * scale), # TODO: revert changes!
+                             int(self.image_size[1] * scale))),
     )
     return new_camera
 

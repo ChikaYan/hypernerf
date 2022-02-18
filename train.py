@@ -89,10 +89,13 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/background', stats.get('background_loss'))
   _log_scalar('loss/bg_decompose', stats.get('bg_decompose_loss'))
   _log_scalar('loss/blendw_loss', stats.get('blendw_loss'))
+  _log_scalar('loss/coase_blendw_mean', stats.get('coarse_blendw'))
+  _log_scalar('loss/fine_blendw_mean', stats.get('fine_blendw'))
   _log_scalar('loss/force_blendw_loss', stats.get('force_blendw_loss'))
   _log_scalar('loss/blendw_ray_loss', stats.get('blendw_ray_loss'))
   _log_scalar('loss/blendw_area_loss', stats.get('blendw_area_loss'))
   _log_scalar('loss/shadow_loss', stats.get('shadow_loss'))
+  _log_scalar('loss/blendw_sample_loss', stats.get('blendw_sample_loss'))
   _log_scalar('loss/ex_blendw_ray_loss', stats.get('ex_blendw_ray_loss'))
   _log_scalar('loss/ex_density_ray_loss', stats.get('ex_density_ray_loss'))
 
@@ -346,6 +349,7 @@ def main(argv):
       blendw_area_loss_weight=train_config.blendw_area_loss_weight,
       shadow_loss_threshold=train_config.shadow_loss_threshold,
       shadow_loss_weight=train_config.shadow_loss_weight,
+      blendw_sample_loss_weight=train_config.blendw_sample_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   new_state = state
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
@@ -533,18 +537,19 @@ def main(argv):
 
     time_tracker.tic('data', 'total')
 
-    # if False:
+    # Run time evaluation
     if step % eval_config.niter_runtime_eval == 0 and jax.process_index() == 0:
-      # do a quick evaluation render on train
       train_eval_ids = utils.strided_subset(
           datasource.train_ids, eval_config.nimg_runtime_eval) 
+          
+      train_eval_ids += list(eval_config.ex_runtime_eval_targets)
       train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
 
       def _model_fn(key_0, key_1, params, rays_dict, extra_params):
         out = model.apply({'params': params},
                           rays_dict,
                           extra_params=extra_params,
-                          metadata_encoded=True,
+                          metadata_encoded=False,
                           rngs={
                               'coarse': key_0,
                               'fine': key_1
@@ -608,8 +613,6 @@ def process_iterator(tag: str,
   for i, (item_id, batch) in enumerate(zip(item_ids, iterator)):
     logging.info('[%s:%d/%d] Processing %s ', tag, i+1, len(item_ids), item_id)
 
-    batch['metadata'] = evaluation.encode_metadata(
-        model, jax_utils.unreplicate(params), batch['metadata'])
     model_out = render_fn(state, batch, rng=rng)
     plot_images(
         tag=tag,

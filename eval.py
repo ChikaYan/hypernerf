@@ -68,7 +68,7 @@ def compute_multiscale_ssim(image1: jnp.ndarray, image2: jnp.ndarray):
   """Compute the multiscale SSIM metric."""
   image1 = tf.convert_to_tensor(image1)
   image2 = tf.convert_to_tensor(image2)
-  return tf.image.ssim_multiscale(image1, image2, max_val=1.0, filter_size=8) # reduce filter size for smaller images
+  return tf.image.ssim_multiscale(image1, image2, max_val=1.0, filter_size=4) # reduce filter size for smaller images
 
 
 def compute_ssim(image1: jnp.ndarray, image2: jnp.ndarray, pad=0,
@@ -250,8 +250,8 @@ def process_iterator(tag: str,
     elif tag == 'fix_view':
       batch['metadata'] = metas[i]
 
-    batch['metadata'] = evaluation.encode_metadata(
-        model, jax_utils.unreplicate(params), batch['metadata'])
+    # batch['metadata'] = evaluation.encode_metadata(
+    #     model, jax_utils.unreplicate(params), batch['metadata'])
     model_out = render_fn(state, batch, rng=rng)
     plot_images(
         batch=batch,
@@ -401,7 +401,8 @@ def main(argv):
 
     # Get training IDs to evaluate.
   train_eval_ids = utils.strided_subset(
-      datasource.train_ids, eval_config.num_train_eval) # returns eval_config.num_train_eval+1 evenly spaced samples
+      datasource.train_ids, eval_config.num_train_eval) # returns eval_config.num_train_eval+1 evenly spaced samples 
+  # train_eval_ids = ['000133']
   if train_eval_ids:
     train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
   else:
@@ -516,7 +517,7 @@ def main(argv):
     out = model.apply({'params': params},
                       rays_dict,
                       extra_params=extra_params,
-                      metadata_encoded=True,
+                      metadata_encoded=False,
                       rngs={
                           'coarse': key_0,
                           'fine': key_1

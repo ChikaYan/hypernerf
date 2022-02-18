@@ -1,0 +1,43 @@
+include 'configs/decompose/train.gin'
+
+image_scale = 16
+max_steps = 100000
+
+DecomposeNerfModel.handle_motion_blur = False
+StaticNerfModel.use_viewdirs = True
+DecomposeNerfModel.use_viewdirs = True
+DecomposeNerfModel.extra_renders = ('static', 'dynamic', 'blendw')
+DecomposeNerfModel.blend_mode = 'add'
+DecomposeNerfModel.use_sample_at_infinity = True
+
+
+# TrainConfig.blendw_loss_weight_schedule = ('constant', 0.001)
+TrainConfig.blendw_loss_weight_schedule = {
+  'type': 'linear',
+  'initial_value': 0.0001,
+  'final_value': 0.1,
+  'num_steps': 100000 #%max_steps,
+}
+TrainConfig.blendw_loss_skewness = 1.5
+TrainConfig.blendw_ray_loss_weight = 0.001
+TrainConfig.blendw_ray_loss_threshold = .5
+TrainConfig.use_ex_ray_entropy_loss = False
+TrainConfig.blendw_area_loss_weight = 0.001
+TrainConfig.shadow_loss_threshold = 0.2
+TrainConfig.shadow_loss_weight = 0.
+TrainConfig.blendw_sample_loss_weight = 0.
+
+
+# initialize static model for some iterations first
+TrainConfig.fix_blendw_steps = 0
+TrainConfig.force_blendw_steps = 0
+TrainConfig.force_blendw_loss_weight = .1
+TrainConfig.fix_blendw_value = 0.15
+
+EvalConfig.niter_runtime_eval = 10000
+EvalConfig.nimg_runtime_eval = 3
+EvalConfig.ex_runtime_eval_targets = ('000031', '000111', '000133')
+
+# TrainConfig.save_every = 200
+
+

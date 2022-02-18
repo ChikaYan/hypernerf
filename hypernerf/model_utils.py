@@ -166,9 +166,10 @@ def volumetric_rendering_addition(rgb_d,
                                   dirs,
                                   use_white_background,
                                   sample_at_infinity=True,
-                                  eps=1e-10):
+                                  eps=1e-10,
+                                  blendw_rendering=False):
   """
-  Volumetric Rendering Function with Blending
+  Volumetric Rendering Function with addition
   """
   last_sample_z = 1e10 if sample_at_infinity else 1e-19
   dists = jnp.concatenate([ # distance between each sample along a ray
@@ -178,6 +179,11 @@ def volumetric_rendering_addition(rgb_d,
   dists = dists * jnp.linalg.norm(dirs[..., None, :], axis=-1)
 
   alpha_d = (1.0 - jnp.exp(-sigma_d * dists))
+  # if sample_at_infinity:
+  #   # dynamic component should not use the last sample located at infinite far away plane
+  #   # this allows rays on empty dynamic component to not terminate 
+  #   alpha_d = jnp.concatenate([alpha_d[..., :-1], jnp.zeros_like(alpha_d[..., -1:])], axis=-1)
+
   alpha_s = (1.0 - jnp.exp(-sigma_s * dists))
   alpha_both = (1.0 - jnp.exp(-(sigma_d + sigma_s) * dists))
   # Prepend a 1.0 to make this an 'exclusive' cumprod as in `tf.math.cumprod`.
@@ -189,7 +195,10 @@ def volumetric_rendering_addition(rgb_d,
   weights_d = alpha_d * Ts
   weights_s = alpha_s * Ts
 
-  rgb = (weights_d[..., None] * rgb_d + weights_s[..., None] * rgb_s).sum(axis=-2)
+  if not blendw_rendering:
+    rgb = (weights_d[..., None] * rgb_d + weights_s[..., None] * rgb_s).sum(axis=-2)
+  else:
+    rgb = (weights_d.sum(axis=-1) / (weights_d.sum(axis=-1) + weights_s.sum(axis=-1)))[..., None] * jnp.array([1,1,1])
 
   # TODO: verify depth and accuracy computation
   exp_depth = ((weights_d + weights_s)  * z_vals).sum(axis=-1)
@@ -208,7 +217,8 @@ def volumetric_rendering_addition(rgb_d,
       'acc': acc,
       'weights': (weights_d + weights_s),
       'weights_dynamic': weights_d,
-      'weights_static' : weights_s
+      'weights_static' : weights_s,
+      'dists': dists
   }
   return out
 
@@ -268,7 +278,8 @@ def volumetric_rendering_blending(rgb_d,
       'acc': acc,
       'weights': (weights_d + weights_s),
       'weights_dynamic': weights_d,
-      'weights_static' : weights_s
+      'weights_static' : weights_s,
+      'dists': dists
   }
   return out
 

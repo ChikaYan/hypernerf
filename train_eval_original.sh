@@ -1,7 +1,7 @@
 #!/bin/bash
 
-DATA_PATH='./data/my_hand_large_motion/'
-LOG_PATH='log/my_hand_large_motion/original/'
+DATA_PATH='./data/my_hand/'
+LOG_PATH='log/my_hand/original_fair/'
 
 
 echo "Log path is: $LOG_PATH"
