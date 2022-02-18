@@ -21,16 +21,25 @@ from flax import struct
 from jax import lax
 from jax import random
 import jax.numpy as jnp
+from hypernerf.types import RENDER_MODE
 
 
 @struct.dataclass
 class TrainState:
   """Stores training state, including the optimizer and model params."""
+  """ Basically a custom wrapper over the flax optimizer object to additionally include a set of extra parameters"""
   optimizer: optim.Optimizer
   nerf_alpha: Optional[jnp.ndarray] = None
   warp_alpha: Optional[jnp.ndarray] = None
   hyper_alpha: Optional[jnp.ndarray] = None
   hyper_sheet_alpha: Optional[jnp.ndarray] = None
+  # not implemented modification
+  # render_mode: jnp.ndarray = jnp.array([RENDER_MODE['regular']])
+  freeze_static: jnp.ndarray = jnp.array([False])
+  freeze_dynamic: jnp.ndarray = jnp.array([False])
+  freeze_blendw: jnp.ndarray = jnp.array([False])
+  force_blendw: jnp.ndarray = jnp.array([False])
+  freeze_blendw_value: jnp.ndarray = jnp.array([0.5])
 
   @property
   def extra_params(self):
@@ -39,6 +48,12 @@ class TrainState:
         'warp_alpha': self.warp_alpha,
         'hyper_alpha': self.hyper_alpha,
         'hyper_sheet_alpha': self.hyper_sheet_alpha,
+        # 'render_mode': self.render_mode,
+        'freeze_static': self.freeze_static,
+        'freeze_dynamic': self.freeze_dynamic,
+        'freeze_blendw': self.freeze_blendw,
+        'force_blendw': self.force_blendw,
+        'freeze_blendw_value': self.freeze_blendw_value
     }
 
 
@@ -109,7 +124,7 @@ def volumetric_rendering(rgb,
   """
   # TODO(keunhong): remove this hack.
   last_sample_z = 1e10 if sample_at_infinity else 1e-19
-  dists = jnp.concatenate([
+  dists = jnp.concatenate([ # distance between each sample along a ray
       z_vals[..., 1:] - z_vals[..., :-1],
       jnp.broadcast_to([last_sample_z], z_vals[..., :1].shape)
   ], -1)
@@ -118,7 +133,7 @@ def volumetric_rendering(rgb,
   # Prepend a 1.0 to make this an 'exclusive' cumprod as in `tf.math.cumprod`.
   accum_prod = jnp.concatenate([
       jnp.ones_like(alpha[..., :1], alpha.dtype),
-      jnp.cumprod(1.0 - alpha[..., :-1] + eps, axis=-1),
+      jnp.cumprod(1.0 - alpha[..., :-1] + eps, axis=-1), # this calculates array of T_i
   ], axis=-1)
   weights = alpha * accum_prod
 
@@ -140,6 +155,134 @@ def volumetric_rendering(rgb,
       'weights': weights,
   }
   return out
+
+
+def volumetric_rendering_addition(rgb_d,
+                                  sigma_d,
+                                  rgb_s,
+                                  sigma_s,
+                                  blendw,
+                                  z_vals,
+                                  dirs,
+                                  use_white_background,
+                                  sample_at_infinity=True,
+                                  eps=1e-10,
+                                  blendw_rendering=False):
+  """
+  Volumetric Rendering Function with addition
+  """
+  last_sample_z = 1e10 if sample_at_infinity else 1e-19
+  dists = jnp.concatenate([ # distance between each sample along a ray
+      z_vals[..., 1:] - z_vals[..., :-1],
+      jnp.broadcast_to([last_sample_z], z_vals[..., :1].shape)
+  ], -1)
+  dists = dists * jnp.linalg.norm(dirs[..., None, :], axis=-1)
+
+  alpha_d = (1.0 - jnp.exp(-sigma_d * dists))
+  # if sample_at_infinity:
+  #   # dynamic component should not use the last sample located at infinite far away plane
+  #   # this allows rays on empty dynamic component to not terminate 
+  #   alpha_d = jnp.concatenate([alpha_d[..., :-1], jnp.zeros_like(alpha_d[..., -1:])], axis=-1)
+
+  alpha_s = (1.0 - jnp.exp(-sigma_s * dists))
+  alpha_both = (1.0 - jnp.exp(-(sigma_d + sigma_s) * dists))
+  # Prepend a 1.0 to make this an 'exclusive' cumprod as in `tf.math.cumprod`.
+  Ts = jnp.concatenate([
+      jnp.ones_like(alpha_both[..., :1], alpha_both.dtype),
+      jnp.cumprod(1.0 - alpha_both[..., :-1] + eps, axis=-1),
+  ], axis=-1)
+
+  weights_d = alpha_d * Ts
+  weights_s = alpha_s * Ts
+
+  if not blendw_rendering:
+    rgb = (weights_d[..., None] * rgb_d + weights_s[..., None] * rgb_s).sum(axis=-2)
+  else:
+    rgb = (weights_d.sum(axis=-1) / (weights_d.sum(axis=-1) + weights_s.sum(axis=-1)))[..., None] * jnp.array([1,1,1])
+
+  # TODO: verify depth and accuracy computation
+  exp_depth = ((weights_d + weights_s)  * z_vals).sum(axis=-1)
+  med_depth = compute_depth_map((weights_d + weights_s), z_vals)
+  acc = (weights_d + weights_s).sum(axis=-1)
+  if use_white_background:
+    rgb = rgb + (1. - acc[..., None])
+
+  if sample_at_infinity:
+    acc = (weights_d + weights_s)[..., :-1].sum(axis=-1)
+
+  out = {
+      'rgb': rgb,
+      'depth': exp_depth,
+      'med_depth': med_depth,
+      'acc': acc,
+      'weights': (weights_d + weights_s),
+      'weights_dynamic': weights_d,
+      'weights_static' : weights_s,
+      'dists': dists
+  }
+  return out
+
+
+def volumetric_rendering_blending(rgb_d,
+                                  sigma_d,
+                                  rgb_s,
+                                  sigma_s,
+                                  blendw,
+                                  z_vals,
+                                  dirs,
+                                  use_white_background,
+                                  sample_at_infinity=True,
+                                  eps=1e-10):
+  """
+  Volumetric Rendering Function with Blending
+  """
+  last_sample_z = 1e10 if sample_at_infinity else 1e-19
+  dists = jnp.concatenate([ # distance between each sample along a ray
+      z_vals[..., 1:] - z_vals[..., :-1],
+      jnp.broadcast_to([last_sample_z], z_vals[..., :1].shape)
+  ], -1)
+  dists = dists * jnp.linalg.norm(dirs[..., None, :], axis=-1)
+
+
+  alpha_d = (1.0 - jnp.exp(-sigma_d * dists)) * blendw
+  alpha_s = (1.0 - jnp.exp(-sigma_s * dists)) * (1. - blendw)
+  # Prepend a 1.0 to make this an 'exclusive' cumprod as in `tf.math.cumprod`.
+  Ts_d = jnp.concatenate([
+      jnp.ones_like(alpha_d[..., :1], alpha_d.dtype),
+      jnp.cumprod(1.0 - alpha_d[..., :-1] + eps, axis=-1),
+  ], axis=-1)
+  Ts_s = jnp.concatenate([
+      jnp.ones_like(alpha_s[..., :1], alpha_s.dtype),
+      jnp.cumprod(1.0 - alpha_s[..., :-1] + eps, axis=-1),
+  ], axis=-1)
+
+  weights_d = alpha_d * Ts_d
+  weights_s = alpha_s * Ts_s
+
+  rgb = (weights_d[..., None] * rgb_d + weights_s[..., None] * rgb_s).sum(axis=-2)
+
+  # TODO: verify depth and accuracy computation
+  exp_depth = ((weights_d + weights_s)  * z_vals).sum(axis=-1)
+  med_depth = compute_depth_map((weights_d + weights_s), z_vals)
+  acc = (weights_d + weights_s).sum(axis=-1)
+  if use_white_background:
+    rgb = rgb + (1. - acc[..., None])
+
+  if sample_at_infinity:
+    acc = (weights_d + weights_s)[..., :-1].sum(axis=-1)
+
+  out = {
+      'rgb': rgb,
+      'depth': exp_depth,
+      'med_depth': med_depth,
+      'acc': acc,
+      'weights': (weights_d + weights_s),
+      'weights_dynamic': weights_d,
+      'weights_static' : weights_s,
+      'dists': dists
+  }
+  return out
+
 
 
 def piecewise_constant_pdf(key, bins, weights, num_coarse_samples,

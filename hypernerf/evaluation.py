@@ -24,6 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from hypernerf import utils
+from sklearn.manifold import TSNE
 
 
 def encode_metadata(model, params, metadata):
@@ -57,7 +58,9 @@ def render_image(
     device_count,
     rng,
     chunk=8192,
-    default_ret_key=None):
+    default_ret_key=None,
+    normalise_rendering=False,
+    use_tsne=False):
   """Render all the pixels of an image (in test mode).
 
   Args:
@@ -131,5 +134,28 @@ def render_image(
     logging.debug('Reshaping %s of shape %s to %s',
                   key, str(value.shape), str(out_shape))
     out[key] = value.reshape(out_shape)
+
+  if normalise_rendering:
+    out['rgb'] = out['rgb'] / jnp.max(out['rgb'])
+
+
+  if out['rgb'].shape[-1] > 3:
+    if use_tsne:
+      # map rgb to 3D if it has higher dimension
+      # needed when trying to visualize higher dimensional data such as time coord
+      rgb_shape = list(out['rgb'].shape)
+      rgb = jnp.reshape(out['rgb'],[-1, rgb_shape[-1]])
+      rgb_embed = TSNE(n_components=3, learning_rate='auto',init='random').fit_transform(rgb)
+      # normalize the output to be within range [0,1]
+      rgb_embed = (rgb_embed - rgb_embed.min())/(rgb_embed.max()-rgb_embed.min())
+      out['rgb'] = jnp.reshape(rgb_embed, rgb_shape[:-1] + [3])
+    else:
+      # map to lower dimension using naive method
+      # TODO: check!
+      rgb = out['rgb']
+      while rgb.shape[-1] > 3:
+        rgb[...,:3] = (rgb[...,:3] + rgb[...,-3:])/2
+        rgb = rgb[...,:-3]
+      out['rgb'] = rgb
 
   return out

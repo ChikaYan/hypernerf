@@ -82,8 +82,8 @@ def _load_dataset_ids(data_dir: types.PathType) -> Tuple[List[str], List[str]]:
 
 
 @gin.configurable
-class NerfiesDataSource(core.DataSource):
-  """Data loader for videos."""
+class SepTrainDataSource(core.DataSource):
+  """Data loader for videos with dynamic object mask"""
 
   def __init__(self,
                data_dir: str = gin.REQUIRED,
@@ -119,6 +119,8 @@ class NerfiesDataSource(core.DataSource):
     if metadata_path.exists():
       with metadata_path.open('r') as f:
         self.metadata_dict = json.load(f)
+
+    self.mask_dir = gpath.GPath(data_dir, 'mask', f'{image_scale}x')
 
   @property
   def near(self) -> float:
@@ -159,6 +161,13 @@ class NerfiesDataSource(core.DataSource):
                             scene_center=self.scene_center,
                             scene_scale=self.scene_scale)
 
+  def load_mask(self, item_id: str) -> np.ndarray:
+    mask = _load_image(self.mask_dir / f'{item_id}.png')
+    mask = np.average(mask, axis=-1)
+    mask = np.where(mask > 0, 1, 0)
+    return mask[..., None]
+
+
   def glob_cameras(self, path):
     path = gpath.GPath(path)
     return sorted(path.glob(f'*{self.camera_ext}'))
@@ -176,6 +185,7 @@ class NerfiesDataSource(core.DataSource):
     return cameras
 
   def load_points(self, shuffle=False):
+    '''Load the known background points which are used for background regularisation'''
     with (self.data_dir / 'points.npy').open('rb') as f:
       points = np.load(f)
     points = (points - self.scene_center) * self.scene_scale

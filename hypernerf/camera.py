@@ -334,8 +334,8 @@ class Camera:
         pixel_aspect_ratio=self.pixel_aspect_ratio,
         radial_distortion=self.radial_distortion.copy(),
         tangential_distortion=self.tangential_distortion.copy(),
-        image_size=np.array((int(round(self.image_size[0] * scale)),
-                             int(round(self.image_size[1] * scale)))),
+        image_size=np.array((int(self.image_size[0] * scale), # TODO: revert changes!
+                             int(self.image_size[1] * scale))),
     )
     return new_camera
 
@@ -385,6 +385,46 @@ class Camera:
     camera_rotation[1, :] = np.cross(optical_axis, right_vector)
     camera_rotation[2, :] = optical_axis
 
+    look_at_camera.position = position
+    look_at_camera.orientation = camera_rotation
+    return look_at_camera
+
+
+  def look_at_kb(self, position, target, up=(0,1,0), eps=1e-6):
+    look_at_camera = self.copy()
+
+    # convert directions to vectors if needed
+    world_up = np.array((0,0,1))
+    world_right = np.array((1,0,0))
+    up = np.array(up)
+    front = np.array((0,0,-1))
+
+    def normalize(x, eps=1.0e-8, fallback=None) -> np.ndarray:
+      x = np.asarray(x, dtype=np.float64)
+      norm_x = np.linalg.norm(x)
+      if norm_x < eps:
+        if fallback is None:
+          raise ValueError("Expected non-zero vector.")
+        else:
+          return np.asarray(fallback, dtype=np.float64)
+      return x / norm_x
+
+    up = normalize(up)
+    front = normalize(front)
+    right = np.cross(up, front)
+
+    target = np.asarray(target)
+    position = np.asarray(position)
+
+    # construct the desired coordinate basis front, right, up
+    look_at_front = normalize(target - position)
+    look_at_right = normalize(np.cross(world_up, look_at_front), fallback=world_right)
+    look_at_up = normalize(np.cross(look_at_front, look_at_right))
+
+    rotation_matrix1 = np.stack([look_at_right, look_at_up, look_at_front])
+    rotation_matrix2 = np.stack([right, up, front])
+
+    camera_rotation = rotation_matrix1.T @ rotation_matrix2
     look_at_camera.position = position
     look_at_camera.orientation = camera_rotation
     return look_at_camera

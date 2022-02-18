@@ -54,6 +54,9 @@ class ExperimentConfig:
   # The datasource class.
   datasource_cls: Callable[..., datasets.DataSource] = gin.REQUIRED
 
+  # The rendering mode. Supported types can be found in types.RENDER_MODE
+  render_mode: str = 'regular'
+
 
 @gin.configurable()
 @dataclasses.dataclass
@@ -80,7 +83,7 @@ class TrainConfig:
   warp_alpha_schedule: Optional[ScheduleDef] = None
   # The schedule or the hyper sheet position encoding.
   hyper_alpha_schedule: Optional[ScheduleDef] = None
-  # The schedule or the hyper sheet position encoding. -- what is hyper_sheet??
+  # The schedule or the hyper sheet position encoding.
   hyper_sheet_alpha_schedule: Optional[ScheduleDef] = None
 
   # Whether to use the elastic regularization loss.
@@ -95,8 +98,23 @@ class TrainConfig:
   elastic_loss_type: str = 'log_svals'
   # Whether to use background regularization.
   use_background_loss: bool = False
+  # Whether to use background decompose loss. This loss is only defined for DecomposeNerfModel
+  use_bg_decompose_loss: bool = False
   # The weight for the background loss.
   background_loss_weight: float = 0.0
+  bg_decompose_loss_weight: float = 0.0
+  # Fixed Adaptive blendw loss weight setting. Will only be used if blendw_loss_weight_schedule is None
+  # blendw_loss_weight: float = 0.0
+  # Adaptive blendw loss weight setting
+  blendw_loss_weight_schedule: Optional[ScheduleDef] = None
+  blendw_loss_skewness: float = 1.0
+  force_blendw_loss_weight: float = 1.0
+  blendw_ray_loss_weight: float = 0.0
+  blendw_area_loss_weight: float = 0.0
+  blendw_ray_loss_threshold: float = 1.0
+  shadow_loss_threshold: float = 0.2
+  shadow_loss_weight: float = 0.0
+  blendw_sample_loss_weight: float = 0.0
   # The batch size for background regularization loss.
   background_points_batch_size: int = 16384
   # Whether to use the warp reg loss.
@@ -135,6 +153,21 @@ class TrainConfig:
   # Use decompose NeRF or not
   use_decompose_nerf: bool = False
 
+  # Initialize the static model for several iterations first
+  # During this, dynamic model would be frozen
+  freeze_dynamic_steps: int = 0
+  # Fix blendw to certain values for a fixed number of iters
+  fix_blendw_steps: int = 0
+  # Encourage the predicted blendw to be close to a certain value for some iters
+  # This is different to fixing the value
+  force_blendw_steps: int = 0
+  fix_blendw_value: float = 0.25
+
+  # Use provided dynmaic object mask to separately train the dynamic and static component
+  use_mask_sep_train: bool = False
+
+  # Regularize the decompose model using rays combined with different time frame
+  use_ex_ray_entropy_loss: bool = False
 
 @gin.configurable()
 @dataclasses.dataclass
@@ -145,6 +178,8 @@ class EvalConfig:
   eval_once: bool = False
   # If True save the predicted images to persistent storage.
   save_output: bool = True
+  # If True keep only the gif and remove the images
+  keep_gif_only: bool = True
   # The evaluation batch size.
   chunk: int = 8192
   # Max render checkpoints. The renders will rotate after this many.
@@ -165,3 +200,32 @@ class EvalConfig:
   num_train_eval: Optional[int] = 10
   # The number of test examples to evaluate.
   num_test_eval: Optional[int] = 10
+  
+  # Evalution setting for fixed time rotating camera experiments
+  fix_time_eval: bool = False
+  # Number of views rendered for each fixed time frame
+  num_fixed_time_views: Optional[int] = 10
+  # The time frame id used to render
+  fixed_time_id: int = 0
+
+  # Evalution setting for fixed view varying time experiments
+  fix_view_eval: bool = False
+  # Number of views rendered for each fixed time frame
+  num_fixed_view_frames: Optional[int] = 10
+  # The view id used to render
+  fixed_view_id: int = 0
+  # Whether to use camera poses from training views
+  use_train_views: bool = False
+
+  # normalise the rgb renderings
+  normalise_rendering: bool = False
+  # use TSNE to map higher dimension RGB return to 3D
+  use_tsne: bool = False
+
+  # Runtime evaluation for every n iteration 
+  niter_runtime_eval: int = 1000
+  # Number of training images rendered for runtime evaluation
+  nimg_runtime_eval: int = 1
+  # Specific number of frames that need to be rendered for runtime eval
+  # Those will be rendered in additional to the targets chosen from nimg_runtime_eval
+  ex_runtime_eval_targets: tuple = ()

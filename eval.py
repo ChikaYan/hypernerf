@@ -36,7 +36,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_hub as tf_hub
 import pdb
-
+import glob
+import imageio
 
 from hypernerf import configs
 from hypernerf import datasets
@@ -61,12 +62,13 @@ FLAGS = flags.FLAGS
 
 config.update('jax_log_compiles', True)
 
+KEEP_GIF_ONLY = True
 
 def compute_multiscale_ssim(image1: jnp.ndarray, image2: jnp.ndarray):
   """Compute the multiscale SSIM metric."""
   image1 = tf.convert_to_tensor(image1)
   image2 = tf.convert_to_tensor(image2)
-  return tf.image.ssim_multiscale(image1, image2, max_val=1.0)
+  return tf.image.ssim_multiscale(image1, image2, max_val=1.0, filter_size=4) # reduce filter size for smaller images
 
 
 def compute_ssim(image1: jnp.ndarray, image2: jnp.ndarray, pad=0,
@@ -118,7 +120,8 @@ def plot_images(*,
                 model_out: Any,
                 save_dir: Optional[gpath.GPath],
                 datasource: datasets.DataSource,
-                extra_images=None):
+                extra_images=None,
+                extra_render_tags=None):
   """Process and plot a single batch."""
   item_id = item_id.replace('/', '_')
   rgb = model_out['rgb'][..., :3]
@@ -138,16 +141,16 @@ def plot_images(*,
   if save_dir:
     save_dir = save_dir / tag
     save_dir.mkdir(parents=True, exist_ok=True)
-    image_utils.save_image(save_dir / f'rgb_{item_id}.png',
+    image_utils.save_image(save_dir / f'regular_rgb_{item_id}.png',
                            image_utils.image_to_uint8(rgb))
-    image_utils.save_image(save_dir / f'depth_expected_viz_{item_id}.png',
-                           image_utils.image_to_uint8(depth_exp_viz))
-    image_utils.save_depth(save_dir / f'depth_expected_{item_id}.png',
-                           depth_exp)
-    image_utils.save_image(save_dir / f'depth_median_viz_{item_id}.png',
-                           image_utils.image_to_uint8(depth_med_viz))
-    image_utils.save_depth(save_dir / f'depth_median_{item_id}.png',
-                           depth_med)
+    # image_utils.save_image(save_dir / f'depth_expected_viz_{item_id}.png',
+    #                        image_utils.image_to_uint8(depth_exp_viz))
+    # image_utils.save_depth(save_dir / f'depth_expected_{item_id}.png',
+    #                        depth_exp)
+    # image_utils.save_image(save_dir / f'depth_median_viz_{item_id}.png',
+    #                        image_utils.image_to_uint8(depth_med_viz))
+    # image_utils.save_depth(save_dir / f'depth_median_{item_id}.png',
+    #                        depth_med)
 
   summary_writer.image(f'rgb/{tag}/{item_id}', rgb, step)
   summary_writer.image(f'depth-expected/{tag}/{item_id}', depth_exp_viz, step)
@@ -184,6 +187,11 @@ def plot_images(*,
   if extra_images:
     for k, v in extra_images.items():
       summary_writer.image(f'{k}/{tag}/{item_id}', v, step)
+
+  if extra_render_tags is not None:
+    for extra_tag in extra_render_tags:
+      image_utils.save_image(save_dir / f'{extra_tag}_rgb_{item_id}.png',
+                            image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
 
 
 def sample_random_metadata(datasource, batch, step):
@@ -224,19 +232,26 @@ def process_iterator(tag: str,
                      summary_writer: tensorboard.SummaryWriter,
                      save_dir: Optional[gpath.GPath],
                      datasource: datasets.DataSource,
-                     model: models.NerfModel):
+                     model: models.NerfModel,
+                     metas = None):
   """Process a dataset iterator and compute metrics."""
   params = state.optimizer.target['model']
   save_dir = save_dir / f'{step:08d}' / tag if save_dir else None
   meters = collections.defaultdict(utils.ValueMeter)
+  extra_renders = model.extra_renders if hasattr(model, 'extra_renders') else None
+
   for i, (item_id, batch) in enumerate(zip(item_ids, iterator)):
     logging.info('[%s:%d/%d] Processing %s ', tag, i+1, len(item_ids), item_id)
     extra_images = None
     if tag == 'test':
       batch['metadata'] = sample_random_metadata(datasource, batch, step)
+    elif tag == 'fix_time':
+      batch['metadata'] = metas
+    elif tag == 'fix_view':
+      batch['metadata'] = metas[i]
 
-    batch['metadata'] = evaluation.encode_metadata(
-        model, jax_utils.unreplicate(params), batch['metadata'])
+    # batch['metadata'] = evaluation.encode_metadata(
+    #     model, jax_utils.unreplicate(params), batch['metadata'])
     model_out = render_fn(state, batch, rng=rng)
     plot_images(
         batch=batch,
@@ -247,7 +262,8 @@ def process_iterator(tag: str,
         summary_writer=summary_writer,
         save_dir=save_dir,
         datasource=datasource,
-        extra_images=extra_images)
+        extra_images=extra_images,
+        extra_render_tags=extra_renders)
     if jax.process_index() == 0:
       stats = compute_stats(batch, model_out)
       plot_images(
@@ -259,7 +275,8 @@ def process_iterator(tag: str,
           summary_writer=summary_writer,
           save_dir=save_dir,
           datasource=datasource,
-          extra_images=extra_images)
+          extra_images=extra_images,
+          extra_render_tags=extra_renders)
     if jax.process_index() == 0:
       for k, v in stats.items():
         meters[k].update(v)
@@ -269,6 +286,20 @@ def process_iterator(tag: str,
       summary_writer.scalar(tag=f'metrics-eval/{meter_name}/{tag}',
                             value=meter.reduce('mean'),
                             step=step)
+
+  # render a video of rgb output
+  if save_dir:
+    render_tags = ['regular'] 
+    if extra_renders:
+      render_tags += list(extra_renders)
+    for render_tag in render_tags:
+      with imageio.get_writer(f'{save_dir}/{tag}/{render_tag}.gif', fps=5, mode='I') as writer:
+        for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/{render_tag}_rgb_*.png')):
+          image = imageio.imread(rgb_path)
+          writer.append_data(image)
+    if KEEP_GIF_ONLY:
+      for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/*.png')):
+        os.remove(rgb_path)
 
 
 def delete_old_renders(render_dir, max_renders):
@@ -308,6 +339,9 @@ def main(argv):
   train_config = configs.TrainConfig()
   eval_config = configs.EvalConfig()
 
+  global KEEP_GIF_ONLY
+  KEEP_GIF_ONLY = eval_config.keep_gif_only
+
   # Get directory information.
   exp_dir = gpath.GPath(FLAGS.base_folder)
   if exp_config.subname:
@@ -342,7 +376,7 @@ def main(argv):
   logging.info('Found %d total devices: %s.', jax.device_count(),
                str(jax.devices()))
 
-  rng = random.PRNGKey(20200823)
+  rng = random.PRNGKey(20200823) # rng key fixed, might abstract that to config
 
   devices_to_use = jax.local_devices()
   n_devices = len(
@@ -365,19 +399,26 @@ def main(argv):
       use_camera_id=dummy_model.nerf_embed_key == 'camera',
       use_time=dummy_model.warp_embed_key == 'time')
 
-  # Get training IDs to evaluate.
+    # Get training IDs to evaluate.
   train_eval_ids = utils.strided_subset(
-      datasource.train_ids, eval_config.num_train_eval)
-  train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
+      datasource.train_ids, eval_config.num_train_eval) # returns eval_config.num_train_eval+1 evenly spaced samples 
+  # train_eval_ids = ['000133']
+  if train_eval_ids:
+    train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
+  else:
+    train_eval_iter = None
+
   val_eval_ids = utils.strided_subset(
       datasource.val_ids, eval_config.num_val_eval)
   if val_eval_ids:
     val_eval_iter = datasource.create_iterator(val_eval_ids, batch_size=0)
   else:
-    logging.warning('There are no validation examples.')
     val_eval_iter = None
 
-  test_cameras = datasource.load_test_cameras(count=eval_config.num_test_eval)
+  if eval_config.num_test_eval > 0:
+    test_cameras = datasource.load_test_cameras(count=eval_config.num_test_eval)
+  else:
+    test_cameras = None
   if test_cameras:
     test_dataset = datasource.create_cameras_dataset(test_cameras)
     test_eval_ids = [f'{x:03d}' for x in range(len(test_cameras))]
@@ -385,6 +426,75 @@ def main(argv):
   else:
     test_eval_ids = None
     test_eval_iter = None
+
+  # fix time varying value evaluation
+  if eval_config.fix_time_eval:
+    # create dataset for fixed time multi-view validation
+    time_id = datasource.train_ids[eval_config.fixed_time_id]
+    fix_time_meta = datasource.create_iterator([time_id], batch_size=0).__next__()['metadata']
+
+    if eval_config.use_train_views:
+      # use camera poses from training views
+      cam_ids = utils.strided_subset(
+        datasource.train_ids, eval_config.num_fixed_time_views)
+
+      fix_time_cams = []
+      for cam_id in cam_ids:
+        fix_time_cams.append(datasource.load_camera(cam_id))
+
+    else:
+      # use generated camera poses
+      cam_base = datasource.load_camera(time_id)
+      x,y,z = cam_base.position
+      r = np.sqrt(sum(a * a for a in [x,y,z]))
+      phi = np.arccos(z / r) # (180 - elevation)
+      theta = np.arccos(x / (r * np.sin(phi))) # azimuth
+      theta_change = np.pi / 4 / eval_config.num_fixed_time_views
+      
+      fix_time_cams = []
+      for i in range(eval_config.num_fixed_time_views):
+        theta_new = i * theta_change + theta
+
+        # These values of (x, y, z) will lie on the same sphere as the original camera.
+        x = r * np.cos(theta_new) * np.sin(phi)
+        y = r * np.sin(theta_new) * np.sin(phi)
+        z = r * np.cos(phi)
+
+        # new_cam = cam_base.look_at(position=np.array([x,y,z]),look_at=np.array([0,0,0]),up=np.array([0, 1, 0]))
+        new_cam = cam_base.look_at_kb(position=[x,y,z],target=[0,0,0])
+        fix_time_cams.append(new_cam)
+
+
+
+    fix_time_dataset = datasource.create_cameras_dataset(fix_time_cams)
+    fix_time_ids = [f'{x:03d}' for x in range(len(fix_time_cams))]
+    fix_time_iter = datasets.iterator_from_dataset(fix_time_dataset, batch_size=0)
+  else:
+    fix_time_ids = None
+    fix_time_iter = None
+    fix_time_meta = None
+
+  # fix view varying time evaluation
+  if eval_config.fix_view_eval:
+    # create dataset for fixed time multi-view validation
+    view_id = datasource.train_ids[eval_config.fixed_view_id]
+    fixed_camera = datasource.load_camera(view_id)
+    # get the time coordinate from training data
+    frame_ids = utils.strided_subset(
+      datasource.train_ids, eval_config.num_fixed_view_frames)
+    fix_view_cams = []
+    fix_view_metas = []
+    for i in range(len(frame_ids)):
+      fix_view_cams.append(fixed_camera.copy())
+      fix_view_metas.append(datasource.create_iterator([frame_ids[i]], batch_size=0).__next__()['metadata'])
+
+    fix_view_dataset = datasource.create_cameras_dataset(fix_view_cams)
+    fix_view_ids = frame_ids
+    fix_view_iter = datasets.iterator_from_dataset(fix_view_dataset, batch_size=0)
+  else:
+    fix_view_ids = None
+    fix_view_iter = None
+    fix_view_metas = None
 
   rng, key = random.split(rng)
   params = {}
@@ -407,7 +517,7 @@ def main(argv):
     out = model.apply({'params': params},
                       rays_dict,
                       extra_params=extra_params,
-                      metadata_encoded=True,
+                      metadata_encoded=False,
                       rngs={
                           'coarse': key_0,
                           'fine': key_1
@@ -415,18 +525,29 @@ def main(argv):
                       mutable=False)
     return jax.lax.all_gather(out, axis_name='batch')
 
-  pmodel_fn = jax.pmap(
-      # Note rng_keys are useless in eval mode since there's no randomness.
-      _model_fn,
-      in_axes=(0, 0, 0, 0, 0),  # Only distribute the data input.
-      devices=devices_to_use,
-      axis_name='batch',
-  )
+  if FLAGS.debug:
+    # vmap version for debugging
+    pmodel_fn = jax.vmap(
+        # Note rng_keys are useless in eval mode since there's no randomness.
+        _model_fn,
+        in_axes=(0, 0, 0, 0, 0),  # Only distribute the data input.
+        axis_name='batch',
+    )
+  else:
+    pmodel_fn = jax.pmap(
+        # Note rng_keys are useless in eval mode since there's no randomness.
+        _model_fn,
+        in_axes=(0, 0, 0, 0, 0),  # Only distribute the data input.
+        devices=devices_to_use,
+        axis_name='batch',
+    )
 
   render_fn = functools.partial(evaluation.render_image,
                                 model_fn=pmodel_fn,
                                 device_count=n_devices,
-                                chunk=eval_config.chunk)
+                                chunk=eval_config.chunk,
+                                normalise_rendering=eval_config.normalise_rendering,
+                                use_tsne=eval_config.use_tsne)
 
   last_step = 0
   summary_writer = tensorboard.SummaryWriter(str(summary_dir))
@@ -459,18 +580,18 @@ def main(argv):
           save_dir=save_dir,
           datasource=datasource,
           model=model)
-
-    process_iterator(tag='train',
-                     item_ids=train_eval_ids,
-                     iterator=train_eval_iter,
-                     state=state,
-                     rng=rng,
-                     step=step,
-                     render_fn=render_fn,
-                     summary_writer=summary_writer,
-                     save_dir=save_dir,
-                     datasource=datasource,
-                     model=model)
+    if train_eval_iter:
+      process_iterator(tag='train',
+                      item_ids=train_eval_ids,
+                      iterator=train_eval_iter,
+                      state=state,
+                      rng=rng,
+                      step=step,
+                      render_fn=render_fn,
+                      summary_writer=summary_writer,
+                      save_dir=save_dir,
+                      datasource=datasource,
+                      model=model)
 
     if test_eval_iter:
       process_iterator(tag='test',
@@ -484,6 +605,34 @@ def main(argv):
                        save_dir=save_dir,
                        datasource=datasource,
                        model=model)
+
+    if fix_time_iter:
+      process_iterator(tag='fix_time',
+                       item_ids=fix_time_ids,
+                       iterator=fix_time_iter,
+                       state=state,
+                       rng=rng,
+                       step=step,
+                       render_fn=render_fn,
+                       summary_writer=summary_writer,
+                       save_dir=save_dir,
+                       datasource=datasource,
+                       model=model,
+                       metas=fix_time_meta)
+
+    if fix_view_iter:
+      process_iterator(tag='fix_view',
+                       item_ids=fix_view_ids,
+                       iterator=fix_view_iter,
+                       state=state,
+                       rng=rng,
+                       step=step,
+                       render_fn=render_fn,
+                       summary_writer=summary_writer,
+                       save_dir=save_dir,
+                       datasource=datasource,
+                       model=model,
+                       metas=fix_view_metas)
 
     if save_dir:
       delete_old_renders(renders_dir, eval_config.max_render_checkpoints)

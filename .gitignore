@@ -72,5 +72,12 @@ target/
 
 data/
 log/
+log-archive/
+sbtach_log/
 
-.vscode
+machine.file.*
+slurm-*.out
+
+slurm_script/
+
+log_test/

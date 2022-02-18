@@ -26,3 +26,14 @@ Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 Normalizer = Callable[[], Callable[[Array], Array]]
 
 PathType = Union[Text, pathlib.PurePosixPath]
+
+RENDER_MODE = {
+    'regular': 0,
+    'static': 1,
+    'static_only': 2,
+    'dynamic': 3,
+    'dynamic_only': 4,
+    'blendw': 5,
+    'deformation': 6,
+    'time': 7
+}

@@ -2,10 +2,10 @@ include 'configs/defaults.gin'
 
 image_scale = 4
 batch_size = 512
-eval_batch_size = 8192
+eval_batch_size = 8096
 
 elastic_init_weight = 0.01
-max_steps = 250000
+max_steps = 200000
 lr_decay_steps = 500000
 init_lr = 1e-3
 final_lr = 1e-5
@@ -37,6 +37,8 @@ TrainConfig.hyper_alpha_schedule = {
 
 
 NerfModel.hyper_slice_method = 'bendy_sheet'
+# this disables time coordinate input
+# NerfModel.hyper_slice_method = 'none'
 NerfModel.hyper_sheet_mlp_cls = @HyperSheetMLP
 NerfModel.hyper_use_warp_embed = True
 
@@ -67,12 +69,24 @@ TrainConfig.warp_reg_loss_weight = 0.001
 TrainConfig.use_hyper_reg_loss = False
 TrainConfig.hyper_reg_loss_weight = 0.001
 
-TrainConfig.print_every = 10
+TrainConfig.print_every = 100
 TrainConfig.log_every = 100
 TrainConfig.histogram_every = 100
 TrainConfig.save_every = 1000
+EvalConfig.niter_runtime_eval = 10000
 
 EvalConfig.eval_once = False
-EvalConfig.save_output = False
-EvalConfig.num_train_eval = 5
-EvalConfig.num_val_eval = 5
+EvalConfig.save_output = True
+EvalConfig.num_train_eval = 50
+EvalConfig.num_val_eval = 20
+EvalConfig.num_test_eval = 0
+EvalConfig.normalise_rendering = False
+EvalConfig.use_tsne = False
+
+EvalConfig.fix_time_eval = True
+EvalConfig.num_fixed_time_views = 50
+EvalConfig.use_train_views = True
+EvalConfig.fix_view_eval = True
+EvalConfig.num_fixed_view_frames = 50
+
+NerfiesDataSource.use_gt_camera = False

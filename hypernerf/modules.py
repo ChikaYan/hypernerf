@@ -186,10 +186,145 @@ class NerfMLP(nn.Module):
         'alpha': alpha.reshape((-1, num_samples, self.alpha_channels)),
     }
 
+class BlendwNerfMLP(NerfMLP):
+  """A NerfMLP that outputs blendw in addition to density and radiance.
+  blendw is independent of viewdirection
+
+  Attributes:
+    nerf_trunk_depth: int, the depth of the first part of MLP.
+    nerf_trunk_width: int, the width of the first part of MLP.
+    nerf_rgb_branch_depth: int, the depth of the second part of MLP.
+    nerf_rgb_branch_width: int, the width of the second part of MLP.
+    activation: function, the activation function used in the MLP.
+    skips: which layers to add skip layers to.
+    alpha_channels: int, the number of alpha_channelss.
+    rgb_channels: int, the number of rgb_channelss.
+    condition_density: if True put the condition at the begining which
+      conditions the density of the field.
+  """
+  trunk_depth: int = 8
+  trunk_width: int = 256
+
+  rgb_branch_depth: int = 1
+  rgb_branch_width: int = 128
+  rgb_channels: int = 3
+
+  alpha_branch_depth: int = 0
+  alpha_branch_width: int = 128
+  alpha_channels: int = 1
+
+  blendw_branch_depth: int = 0
+  blendw_branch_width: int = 128
+  blendw_channels: int = 1
+  blendw_output_depth: int = -1
+
+  activation: types.Activation = nn.relu
+  norm: Optional[Any] = None
+  skips: Tuple[int] = (4,)
+
+  @nn.compact
+  def __call__(self, x, alpha_condition, rgb_condition):
+    """Multi-layer perception for nerf.
+
+    Args:
+      x: sample points with shape [batch, num_coarse_samples, feature].
+      alpha_condition: a condition array provided to the alpha branch.
+      rgb_condition: a condition array provided in the RGB branch.
+
+    Returns:
+      raw: [batch, num_coarse_samples, rgb_channels+alpha_channels].
+    """
+    dense = functools.partial(
+        nn.Dense, kernel_init=jax.nn.initializers.glorot_uniform())
+
+    feature_dim = x.shape[-1]
+    num_samples = x.shape[1]
+    x = x.reshape([-1, feature_dim])
+
+    def broadcast_condition(c):
+      # Broadcast condition from [batch, feature] to
+      # [batch, num_coarse_samples, feature] since all the samples along the
+      # same ray has the same viewdir.
+      c = jnp.tile(c[:, None, :], (1, num_samples, 1))
+      # Collapse the [batch, num_coarse_samples, feature] tensor to
+      # [batch * num_coarse_samples, feature] to be fed into nn.Dense.
+      c = c.reshape([-1, c.shape[-1]])
+      return c
+
+    if self.blendw_output_depth == -1:
+      self.blendw_output_depth = self.trunk_depth
+
+    rgb_mlp = MLP(depth=self.rgb_branch_depth,
+                  width=self.rgb_branch_width,
+                  hidden_activation=self.activation,
+                  hidden_norm=self.norm,
+                  hidden_init=jax.nn.initializers.glorot_uniform(),
+                  output_init=jax.nn.initializers.glorot_uniform(),
+                  output_channels=self.rgb_channels)
+    alpha_mlp = MLP(depth=self.alpha_branch_depth, # although depth is 0, it still goes thorugh a top "logit" layer
+                    width=self.alpha_branch_width,
+                    hidden_activation=self.activation,
+                    hidden_norm=self.norm,
+                    hidden_init=jax.nn.initializers.glorot_uniform(),
+                    output_init=jax.nn.initializers.glorot_uniform(),
+                    output_channels=self.alpha_channels)
+    blendw_mlp = MLP(depth=self.blendw_branch_depth, # although depth is 0, it still goes thorugh a top "logit" layer
+                    width=self.blendw_branch_width,
+                    hidden_activation=self.activation,
+                    hidden_norm=self.norm,
+                    hidden_init=jax.nn.initializers.glorot_uniform(),
+                    output_init=jax.nn.initializers.glorot_uniform(),
+                    output_channels=self.blendw_channels)
+
+
+    # use in-line MLP to support blendw output at different layer
+    inputs = x
+    for i in range(self.trunk_depth):
+      if i == self.blendw_output_depth:
+        # output blendw
+        blendw = blendw_mlp(x)
+
+      layer = nn.Dense(
+          self.trunk_width,
+          use_bias=True,
+          kernel_init=jax.nn.initializers.glorot_uniform(),
+          name=f'trunk_hidden_{i}')
+      if i in self.skips:
+        x = jnp.concatenate([x, inputs], axis=-1)
+      x = layer(x)
+      if self.norm is not None:
+        x = self.norm()(x) 
+      x = self.activation(x)
+    
+    # alpha condition is none
+    if (alpha_condition is not None) or (rgb_condition is not None):
+      bottleneck = dense(self.trunk_width, name='bottleneck')(x) # an additional layer to produce bottleneck, if need extra condition on alpha or rgb
+
+    if alpha_condition is not None:
+      alpha_condition = broadcast_condition(alpha_condition)
+      alpha_input = jnp.concatenate([bottleneck, alpha_condition], axis=-1)
+    else:
+      alpha_input = x
+    alpha = alpha_mlp(alpha_input)
+
+    if rgb_condition is not None:
+      rgb_condition = broadcast_condition(rgb_condition)
+      rgb_input = jnp.concatenate([bottleneck, rgb_condition], axis=-1)
+    else:
+      rgb_input = x
+    rgb = rgb_mlp(rgb_input)
+
+    return {
+        'rgb': rgb.reshape((-1, num_samples, self.rgb_channels)),
+        'alpha': alpha.reshape((-1, num_samples, self.alpha_channels)),
+        'blendw': blendw.reshape((-1, num_samples, self.alpha_channels))
+    }
+
 
 @gin.configurable(denylist=['name'])
 class GLOEmbed(nn.Module):
   """A GLO encoder module, which is just a thin wrapper around nn.Embed.
+   A GLO encoder is just used to optimize along with training?
 
   Attributes:
     num_embeddings: The number of embeddings.
@@ -202,7 +337,7 @@ class GLOEmbed(nn.Module):
   embedding_init: types.Activation = nn.initializers.uniform(scale=0.05)
 
   def setup(self):
-    self.embed = nn.Embed(
+    self.embed = nn.Embed( # the flax Embed layer can be used to just store and fetch latent for each input index
         num_embeddings=self.num_embeddings,
         features=self.num_dims,
         embedding_init=self.embedding_init)
@@ -253,3 +388,26 @@ class HyperSheetMLP(nn.Module):
       return mlp(inputs) + embed
     else:
       return mlp(inputs)
+
+
+
+@gin.configurable(denylist=['name'])
+class BlurMLP(nn.Module):
+  """An MLP that predicts motion blur weight and time-varying ratio."""
+  output_channels: int = 2
+
+  depth: int = 4
+  width: int = 64
+  hidden_init: types.Initializer = jax.nn.initializers.glorot_uniform()
+  # output_init: types.Initializer = jax.nn.initializers.normal(1e-5)
+  output_init: types.Initializer = jax.nn.initializers.glorot_uniform()
+
+  @nn.compact
+  def __call__(self, embed):
+    mlp = MLP(depth=self.depth,
+              width=self.width,
+              hidden_init=self.hidden_init,
+              output_channels=self.output_channels,
+              output_init=self.output_init)
+
+    return mlp(embed)

@@ -215,6 +215,7 @@ class DataSource(abc.ABC):
                use_camera_id=False,
                use_warp_id=False,
                use_depth=False,
+               use_mask=False,
                use_relative_depth=False,
                use_time=False,
                random_seed=0,
@@ -231,6 +232,7 @@ class DataSource(abc.ABC):
     self.use_warp_id = use_warp_id
     self.use_depth = use_depth
     self.use_time = use_time
+    self.use_mask = use_mask
     self.use_relative_depth = use_relative_depth
     self.rng = np.random.RandomState(random_seed)
     self.preload = preload
@@ -269,6 +271,9 @@ class DataSource(abc.ABC):
     raise NotImplementedError()
 
   def load_points(self, shuffle=False):
+    raise NotImplementedError()
+
+  def load_mask(self, item_id):
     raise NotImplementedError()
 
   @abc.abstractmethod
@@ -389,6 +394,7 @@ class DataSource(abc.ABC):
         item_ids,
         flatten=flatten,
         shuffle=shuffle,
+        batch_size=batch_size,
         row_shuffle_buffer_size=shuffle_buffer_size,
         pixel_shuffle_buffer_size=shuffle_buffer_size)
     return iterator_from_dataset(dataset=dataset,
@@ -401,12 +407,13 @@ class DataSource(abc.ABC):
                      item_ids,
                      flatten=False,
                      shuffle=False,
+                     batch_size=1024,
                      row_shuffle_buffer_size=1000000,
                      pixel_shuffle_buffer_size=1000000):
     """Creates a tf.data.Dataset."""
     if self.preload:
       return self._create_preloaded_dataset(
-          item_ids, flatten=flatten, shuffle=shuffle)
+          item_ids, flatten=flatten, shuffle=shuffle, batch_size=batch_size)
     else:
       return self._create_lazy_dataset(
           item_ids,
@@ -415,7 +422,7 @@ class DataSource(abc.ABC):
           row_shuffle_buffer_size=row_shuffle_buffer_size,
           pixel_shuffle_buffer_size=pixel_shuffle_buffer_size)
 
-  def _create_preloaded_dataset(self, item_ids, flatten=False, shuffle=False):
+  def _create_preloaded_dataset(self, item_ids, flatten=False, shuffle=False, batch_size=1024):
     """Crates a dataset completely preloaded in memory.
 
     This creates a tf.data.Dataset which is constructed by load all data
@@ -434,6 +441,10 @@ class DataSource(abc.ABC):
     data_list = utils.parallel_map(load_fn, item_ids)
     data_list = [_camera_to_rays_fn(item) for item in data_list]
     data_dict = utils.tree_collate(data_list)
+
+    # import imageio
+    # imageio.imsave('debug_out/rgb_0.png', data_dict['rgb'][0,...])
+    # imageio.imsave('debug_out/mask_0.png', data_dict['mask'][0,...])
 
     num_examples = data_dict['origins'].shape[0]
     heights = [x.shape[0] for x in data_dict['origins']]
@@ -471,7 +482,28 @@ class DataSource(abc.ABC):
     for key, value in data_dict.items():
       out_dict[key] = jax.tree_map(_prepare_array, value)
 
-    return tf.data.Dataset.from_tensor_slices(out_dict)
+    dataset = tf.data.Dataset.from_tensor_slices(out_dict)
+
+    if self.use_mask:
+      # separate two datasets, one with all rays that are on static background and the other for dynamic object
+      static_ray_ids = (out_dict['mask'][:,0]==0).nonzero()[0]
+      dynamic_ray_ids = np.setdiff1d(np.arange(num_rays), static_ray_ids)
+      static_dict = {}
+      dynamic_dict = {}
+      for key, value in out_dict.items():
+        static_dict[key] = jax.tree_map(lambda x: x[static_ray_ids], value)
+        dynamic_dict[key] = jax.tree_map(lambda x: x[dynamic_ray_ids], value)
+
+      static_data = tf.data.Dataset.from_tensor_slices(static_dict).repeat().batch(batch_size)
+      dynamic_data = tf.data.Dataset.from_tensor_slices(dynamic_dict).repeat().batch(batch_size)
+
+      zipped = tf.data.Dataset.zip((static_data, dynamic_data))
+      dataset = zipped.flat_map(lambda x0, x1: tf.data.Dataset.from_tensors(x0).concatenate(tf.data.Dataset.from_tensors(x1)))
+      dataset = dataset.unbatch()
+
+      # dataset = tf.data.Dataset.from_tensor_slices(static_dict)
+
+    return dataset
 
   def _create_lazy_dataset(self,
                            item_ids,
@@ -607,6 +639,7 @@ class DataSource(abc.ABC):
         `rays_pixels`: the pixel center of each ray.
         `metadata`: a dictionary of containing various metadata arrays. Each
           item is an array containing metadata IDs for each ray.
+        'mask': the dynamic object mask where 0 indicates static background. Optional  
     """
     rgb = self.load_rgb(item_id)
     if scale_factor != 1.0:
@@ -636,11 +669,16 @@ class DataSource(abc.ABC):
           depth = image_utils.rescale_image(depth, scale_factor)
         data['depth'] = depth[..., np.newaxis]
 
+    if self.use_mask:
+      data['mask'] = self.load_mask(item_id)
+
     logging.info(
         '\tLoaded item %s: shape=%s, scale_factor=%f, metadata=%s',
         item_id,
         rgb.shape,
         scale_factor,
         str(data.get('metadata')))
+    if self.use_mask:
+      logging.info(f"Loaded mask shape: {data['mask'].shape}")
 
     return data

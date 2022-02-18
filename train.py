@@ -16,15 +16,16 @@
 """Training script for Nerf."""
 
 import functools
-from typing import Dict, Union
-
+from typing import Any, Dict, Union, Optional, Sequence
 from absl import app
 from absl import flags
 from absl import logging
 from flax import jax_utils
 from flax import optim
+from flax.core import freeze
 from flax.metrics import tensorboard
 from flax.training import checkpoints
+from flax import traverse_util
 import gin
 import jax
 from jax import numpy as jnp
@@ -33,16 +34,20 @@ import numpy as np
 import tensorflow as tf
 import pdb
 from jax.config import config as jax_config
+import shutil
 
 
 from hypernerf import configs
 from hypernerf import datasets
 from hypernerf import gpath
 from hypernerf import model_utils
+from hypernerf import image_utils
 from hypernerf import models
 from hypernerf import schedules
 from hypernerf import training
 from hypernerf import utils
+from hypernerf import types
+from hypernerf import evaluation
 
 flags.DEFINE_enum('mode', None, ['jax_cpu', 'jax_gpu', 'jax_tpu'],
                   'Distributed strategy approach.')
@@ -82,6 +87,17 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
       writer.scalar(f'{stat_key}/{branch}', stat_value, step)
 
   _log_scalar('loss/background', stats.get('background_loss'))
+  _log_scalar('loss/bg_decompose', stats.get('bg_decompose_loss'))
+  _log_scalar('loss/blendw_loss', stats.get('blendw_loss'))
+  _log_scalar('loss/coase_blendw_mean', stats.get('coarse_blendw'))
+  _log_scalar('loss/fine_blendw_mean', stats.get('fine_blendw'))
+  _log_scalar('loss/force_blendw_loss', stats.get('force_blendw_loss'))
+  _log_scalar('loss/blendw_ray_loss', stats.get('blendw_ray_loss'))
+  _log_scalar('loss/blendw_area_loss', stats.get('blendw_area_loss'))
+  _log_scalar('loss/shadow_loss', stats.get('shadow_loss'))
+  _log_scalar('loss/blendw_sample_loss', stats.get('blendw_sample_loss'))
+  _log_scalar('loss/ex_blendw_ray_loss', stats.get('ex_blendw_ray_loss'))
+  _log_scalar('loss/ex_density_ray_loss', stats.get('ex_density_ray_loss'))
 
   for k, v in time_dict.items():
     writer.scalar(f'time/{k}', v, step)
@@ -144,8 +160,8 @@ def main(argv):
 
   if FLAGS.debug:
     print('Debug mode on! Jitting is disabled')
-    jax_config.update("jax_debug_nans", True)
     jax_config.update('jax_disable_jit', True)
+    jax_config.update("jax_debug_nans", True)
 
   # add simple fix for VS debugger:
   if FLAGS.debug and FLAGS.gin_bindings[0][0]=='"':
@@ -159,6 +175,9 @@ def main(argv):
   # Load configurations.
   exp_config = configs.ExperimentConfig()
   train_config = configs.TrainConfig()
+  eval_config = configs.EvalConfig()
+
+  # assert exp_config.render_mode in types.RENDER_MODE.keys(), f"render mode {exp_config.render_mode} not recognized!"
 
   # add a few more steps to run for debug
   if FLAGS.debug:
@@ -176,6 +195,11 @@ def main(argv):
     exp_dir = exp_dir / exp_config.subname
   summary_dir = exp_dir / 'summaries' / 'train'
   checkpoint_dir = exp_dir / 'checkpoints'
+
+  renders_dir = exp_dir / f'renders-runtime'
+  logging.info('\trenders_dir = %s', renders_dir)
+  if not renders_dir.exists():
+    renders_dir.mkdir(parents=True, exist_ok=True)
 
   # Log and create directories if this is the main process.
   if jax.process_index() == 0:
@@ -217,7 +241,8 @@ def main(argv):
           dummy_model.nerf_embed_key == 'appearance'
           or dummy_model.hyper_embed_key == 'appearance'),
       use_camera_id=dummy_model.nerf_embed_key == 'camera',
-      use_time=dummy_model.warp_embed_key == 'time')
+      use_time=dummy_model.warp_embed_key == 'time',
+      use_mask=train_config.use_mask_sep_train)
 
   # Create Model.
   logging.info('Initializing models.')
@@ -266,17 +291,48 @@ def main(argv):
       train_config.hyper_sheet_alpha_schedule)
   elastic_loss_weight_sched = schedules.from_config(
       train_config.elastic_loss_weight_schedule)
+  blendw_loss_weight_sched = schedules.from_config(train_config.blendw_loss_weight_schedule)
 
-  optimizer_def = optim.Adam(learning_rate_sched(0))
-  if train_config.use_weight_norm:
-    optimizer_def = optim.WeightNorm(optimizer_def)
+
+  if train_config.freeze_dynamic_steps > 0:
+    multi_optimizer = True
+  else:
+    multi_optimizer = False
+
+  # multi_optimizer = True
+
+  if multi_optimizer:
+    if not train_config.use_decompose_nerf:
+      raise NotImplementedError('multi_optimizer can only be set when using decompose nerf!')
+    # seperate the optimizer for static and dynamic components 
+    static_traversal = traverse_util.ModelParamTraversal(lambda path, _: 'static_nerf' in path)
+    dynamic_traversal = traverse_util.ModelParamTraversal(lambda path, _: 'static_nerf' not in path)
+
+    static_opt = optim.Adam(learning_rate_sched(0))
+    dynamic_opt = optim.Adam(0.)
+    if train_config.use_weight_norm:
+      static_opt = optim.WeightNorm(static_opt)
+      dynamic_opt = optim.WeightNorm(dynamic_opt)
+
+    optimizer_def = optim.MultiOptimizer((static_traversal, static_opt),((dynamic_traversal, dynamic_opt)))
+  else:
+    optimizer_def = optim.Adam(learning_rate_sched(0))
+    if train_config.use_weight_norm:
+      optimizer_def = optim.WeightNorm(optimizer_def)
+
   optimizer = optimizer_def.create(params)
+
   state = model_utils.TrainState(
       optimizer=optimizer,
       nerf_alpha=nerf_alpha_sched(0),
       warp_alpha=warp_alpha_sched(0),
       hyper_alpha=hyper_alpha_sched(0),
-      hyper_sheet_alpha=hyper_sheet_alpha_sched(0))
+      hyper_sheet_alpha=hyper_sheet_alpha_sched(0),
+      freeze_static=False,
+      freeze_dynamic=False,
+      freeze_blendw=False,
+      freeze_blendw_value=train_config.fix_blendw_value
+      )
   scalar_params = training.ScalarParams(
       learning_rate=learning_rate_sched(0),
       elastic_loss_weight=elastic_loss_weight_sched(0),
@@ -284,8 +340,30 @@ def main(argv):
       warp_reg_loss_alpha=train_config.warp_reg_loss_alpha,
       warp_reg_loss_scale=train_config.warp_reg_loss_scale,
       background_loss_weight=train_config.background_loss_weight,
+      bg_decompose_loss_weight=train_config.bg_decompose_loss_weight,
+      blendw_loss_weight=blendw_loss_weight_sched(0),
+      blendw_loss_skewness=train_config.blendw_loss_skewness,
+      force_blendw_loss_weight=train_config.force_blendw_loss_weight,
+      blendw_ray_loss_weight=train_config.blendw_ray_loss_weight,
+      blendw_ray_loss_threshold=train_config.blendw_ray_loss_threshold,
+      blendw_area_loss_weight=train_config.blendw_area_loss_weight,
+      shadow_loss_threshold=train_config.shadow_loss_threshold,
+      shadow_loss_weight=train_config.shadow_loss_weight,
+      blendw_sample_loss_weight=train_config.blendw_sample_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
+  new_state = state
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
+
+  # # to restore only static model:
+  # params = state.optimizer.target['model'].unfreeze()
+  # params['hyper_sheet_mlp'] = new_state.optimizer.target['model']['hyper_sheet_mlp']
+  # params['nerf_mlps_coarse'] = new_state.optimizer.target['model']['nerf_mlps_coarse']
+  # params['nerf_mlps_fine'] = new_state.optimizer.target['model']['nerf_mlps_fine']
+  # params['warp_embed'] = new_state.optimizer.target['model']['warp_embed']
+  # params['warp_field'] = new_state.optimizer.target['model']['warp_field']
+  # params = freeze(params)
+  # state.optimizer.replace(target=params)
+
   print(f'Loaded step {state.optimizer.state.step}')
   init_step = state.optimizer.state.step + 1
   state = jax_utils.replicate(state, devices=devices)
@@ -300,6 +378,9 @@ def main(argv):
     summary_writer = tensorboard.SummaryWriter(str(summary_dir))
     summary_writer.text('gin/train', textdata=gin.markdown(config_str), step=0)
 
+    # copy source gin config for better readability
+    shutil.copy(gin_configs[0], exp_dir / 'source.gin')
+
   train_step = functools.partial(
       training.train_step, # rng_key, state, batch, scalar_params
       model,
@@ -307,18 +388,19 @@ def main(argv):
       elastic_loss_type=train_config.elastic_loss_type,
       use_elastic_loss=train_config.use_elastic_loss,
       use_background_loss=train_config.use_background_loss,
+      use_bg_decompose_loss=train_config.use_bg_decompose_loss,
       use_warp_reg_loss=train_config.use_warp_reg_loss,
       use_hyper_reg_loss=train_config.use_hyper_reg_loss,
-  )
+      multi_optimizer=multi_optimizer,
+      use_ex_ray_entropy_loss=train_config.use_ex_ray_entropy_loss,)
 
   if FLAGS.debug:
     # vmap version for debugging
-    ptrain_step = jax.vmap( # jax parallel map
+    ptrain_step = jax.vmap(
         train_step,
-        axis_name='batch', # assigns a hashable name to the axis, which can be later referred to by other functions
+        axis_name='batch',
         # rng_key, state, batch, scalar_params.
-        in_axes=(0, 0, 0, None), # in_axes is used to align and pad the inputs to match dimensions
-        # Treat use_elastic_loss as compile-time static.
+        in_axes=(0, 0, 0, None) 
     )
   else:
     ptrain_step = jax.pmap( # jax parallel map
@@ -352,20 +434,72 @@ def main(argv):
     # pytype: disable=attribute-error
     scalar_params = scalar_params.replace( # update the per-step params: lr and elastic loss
         learning_rate=learning_rate_sched(step),
-        elastic_loss_weight=elastic_loss_weight_sched(step))
+        elastic_loss_weight=elastic_loss_weight_sched(step),
+        blendw_loss_weight=blendw_loss_weight_sched(step))
     # pytype: enable=attribute-error
     nerf_alpha = jax_utils.replicate(nerf_alpha_sched(step), devices)
     warp_alpha = jax_utils.replicate(warp_alpha_sched(step), devices)
     hyper_alpha = jax_utils.replicate(hyper_alpha_sched(step), devices)
     hyper_sheet_alpha = jax_utils.replicate(
         hyper_sheet_alpha_sched(step), devices)
+    # render_mode = jax_utils.replicate(types.RENDER_MODE[exp_config.render_mode])
+    freeze_static = jax_utils.replicate(False)
+    freeze_dynamic = jax_utils.replicate(step<train_config.freeze_dynamic_steps)
+    freeze_blendw = jax_utils.replicate(step<train_config.fix_blendw_steps)
+    force_blendw = jax_utils.replicate(step<train_config.force_blendw_steps)
     state = state.replace(nerf_alpha=nerf_alpha,
                           warp_alpha=warp_alpha,
                           hyper_alpha=hyper_alpha,
-                          hyper_sheet_alpha=hyper_sheet_alpha)
+                          hyper_sheet_alpha=hyper_sheet_alpha,
+                          # render_mode=render_mode,
+                          freeze_static=freeze_static,
+                          freeze_dynamic=freeze_dynamic,
+                          freeze_blendw=freeze_blendw,
+                          force_blendw=force_blendw)
 
-    # if step == 411 or step == 438:
-    # pdb.set_trace()
+    if train_config.use_mask_sep_train:
+      # check the mask in the batch to disable training of the opposite component
+      # Note that this is disabled at the moment
+      raise NotImplementedError('mask training bug not fixed')
+      pred = (batch['mask'] > 0)[0,:,0]
+      if all(pred) !=  any(pred):
+        raise ValueError('Batch separation is incorrect, one batch contains rays for both static and dynamic components')
+      if all(pred):
+        # dynamic batch
+        freeze_static = False
+      else:
+        # static batch
+        freeze_dynamic = False
+
+    # Sample additional ray batch,
+    # which contains unseen combination of time + view
+    # Used for regularization
+    if train_config.use_ex_ray_entropy_loss:
+      test_rng = random.PRNGKey(step)
+      shape = batch['origins'][..., :1].shape
+      metadata = {}
+      if datasource.use_warp_id:
+        warp_id = random.choice(test_rng, jnp.asarray(datasource.warp_ids))
+        metadata['warp'] = jnp.full(shape, fill_value=warp_id, dtype=jnp.uint32)
+
+      # following two are usually not used
+      if datasource.use_appearance_id:
+        appearance_id = random.choice(
+            test_rng, jnp.asarray(datasource.appearance_ids))
+        metadata['appearance'] = jnp.full(shape, fill_value=appearance_id,
+                                          dtype=jnp.uint32)
+      if datasource.use_camera_id:
+        camera_id = random.choice(test_rng, jnp.asarray(datasource.camera_ids))
+        metadata['camera'] = jnp.full(shape, fill_value=camera_id,
+                                      dtype=jnp.uint32)
+      if datasource.use_time:
+        timestamp = random.uniform(test_rng, minval=0.0, maxval=1.0)
+        metadata['time'] = jnp.full(
+            shape, fill_value=timestamp, dtype=jnp.uint32)
+
+      batch['ex_metadata'] = metadata
+    else:
+      batch['ex_metadata'] = None
 
     with time_tracker.record_time('train_step'):
       state, stats, keys, model_out = ptrain_step(
@@ -386,7 +520,7 @@ def main(argv):
         logging.info('\tfine metrics: %s', fine_metrics_str)
 
     if step % train_config.save_every == 0 and jax.process_index() == 0:
-      training.save_checkpoint(checkpoint_dir, state, keep=5)
+      training.save_checkpoint(checkpoint_dir, state, keep=10)
 
     if step % train_config.log_every == 0 and jax.process_index() == 0:
       # Only log via process 0.
@@ -403,8 +537,110 @@ def main(argv):
 
     time_tracker.tic('data', 'total')
 
+    # Run time evaluation
+    if step % eval_config.niter_runtime_eval == 0 and jax.process_index() == 0:
+      train_eval_ids = utils.strided_subset(
+          datasource.train_ids, eval_config.nimg_runtime_eval) 
+          
+      train_eval_ids += list(eval_config.ex_runtime_eval_targets)
+      train_eval_iter = datasource.create_iterator(train_eval_ids, batch_size=0)
+
+      def _model_fn(key_0, key_1, params, rays_dict, extra_params):
+        out = model.apply({'params': params},
+                          rays_dict,
+                          extra_params=extra_params,
+                          metadata_encoded=False,
+                          rngs={
+                              'coarse': key_0,
+                              'fine': key_1
+                          },
+                          mutable=False)
+        return jax.lax.all_gather(out, axis_name='batch')
+
+      if FLAGS.debug:
+        # vmap version for debugging
+        pmodel_fn = jax.vmap(
+            _model_fn,
+            in_axes=(0, 0, 0, 0, 0),
+            axis_name='batch',
+        )
+      else:
+        pmodel_fn = jax.pmap(
+            _model_fn,
+            in_axes=(0, 0, 0, 0, 0), 
+            devices=devices,
+            axis_name='batch',
+        )
+
+      render_fn = functools.partial(evaluation.render_image,
+                                    model_fn=pmodel_fn,
+                                    device_count=n_local_devices,
+                                    chunk=eval_config.chunk,
+                                    normalise_rendering=False,
+                                    use_tsne=False)
+
+      save_dir = renders_dir
+      
+      extra_render_tags = model.extra_renders
+      process_iterator(tag='runtime_eval',
+              item_ids=train_eval_ids,
+              iterator=train_eval_iter,
+              state=state,
+              rng=rng,
+              step=step,
+              render_fn=render_fn,
+              save_dir=save_dir,
+              model=model,
+              extra_render_tags=extra_render_tags)
+
   if train_config.max_steps % train_config.save_every != 0:
-    training.save_checkpoint(checkpoint_dir, state, keep=5)
+    training.save_checkpoint(checkpoint_dir, state, keep=10)
+
+  
+def process_iterator(tag: str,
+                     item_ids: Sequence[str],
+                     iterator,
+                     rng: types.PRNGKey,
+                     state: model_utils.TrainState,
+                     step: int,
+                     render_fn: Any,
+                     save_dir: gpath.GPath,
+                     model: models.NerfModel,
+                     extra_render_tags: Optional[tuple]):
+  """Process a dataset iterator and compute metrics."""
+  params = state.optimizer.target['model']
+  save_dir = save_dir / f'{step:08d}' / tag
+  for i, (item_id, batch) in enumerate(zip(item_ids, iterator)):
+    logging.info('[%s:%d/%d] Processing %s ', tag, i+1, len(item_ids), item_id)
+
+    model_out = render_fn(state, batch, rng=rng)
+    plot_images(
+        tag=tag,
+        item_id=item_id,
+        model_out=model_out,
+        save_dir=save_dir,
+        extra_render_tags=extra_render_tags)
+
+
+def plot_images(tag: str,
+                item_id: str,
+                model_out: Any,
+                save_dir: gpath.GPath,
+                extra_render_tags=None):
+  """Process and plot a single batch."""
+  item_id = item_id.replace('/', '_')
+  rgb = model_out['rgb'][..., :3]
+
+  save_dir = save_dir / tag
+  save_dir.mkdir(parents=True, exist_ok=True)
+  image_utils.save_image(save_dir / f'regular_rgb_{item_id}.png',
+                          image_utils.image_to_uint8(rgb))
+
+  if extra_render_tags is not None:
+    for extra_tag in extra_render_tags:
+      image_utils.save_image(save_dir / f'{extra_tag}_rgb_{item_id}.png',
+                            image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
+
 
 
 if __name__ == '__main__':
