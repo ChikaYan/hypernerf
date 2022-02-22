@@ -2131,16 +2131,34 @@ class DecomposeNerfModel(NerfModel):
         out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
     elif self.blend_mode == 'add':
 
-      if use_sample_at_infinity:
-        # dynamic component should not use the last sample located at infinite far away plane
-        # this allows rays on empty dynamic component to not terminate 
-        # sigma_d = jnp.concatenate([sigma_d[..., :-1], jnp.zeros_like(sigma_d[..., -1:])], axis=-1)
-        sigma_d = jnp.concatenate([sigma_d[..., :-1], jnp.ones_like(sigma_d[..., -1:]) * 0], axis=-1)
-        # sigma_d = jax.lax.cond(
-        #   level=='fine', 
-        #   lambda: jnp.concatenate([sigma_d[..., :-1], jnp.zeros_like(sigma_d[..., -1:])], axis=-1), 
-        #   lambda: sigma_d
-        #   )
+      # if use_sample_at_infinity:
+      #   # dynamic component should not use the last sample located at infinite far away plane
+      #   # this allows rays on empty dynamic component to not terminate 
+      #   sigma_d = jnp.concatenate([
+      #     sigma_d, 
+      #     jnp.zeros_like(sigma_d[..., -1:])
+      #     ], axis=-1)
+      #   rgb_d = jnp.concatenate([
+      #     rgb_d, 
+      #     jnp.zeros_like(rgb_d[..., -1:, :])
+      #     ], axis=-2)
+      #   sigma_s = jnp.concatenate([
+      #     sigma_s[..., :-1], 
+      #     jnp.zeros_like(sigma_s[..., -1:]),
+      #     sigma_s[..., -1:]
+      #     ], axis=-1)
+      #   rgb_s = jnp.concatenate([
+      #     rgb_s[..., :-1, :], 
+      #     jnp.zeros_like(rgb_s[..., -1:, :]),
+      #     rgb_s[..., -1:, :]
+      #     ], axis=-2)
+      # #   # sigma_d = jnp.concatenate([sigma_d[..., :-1], jnp.zeros_like(sigma_d[..., -1:])], axis=-1)
+      # #   sigma_d = jnp.concatenate([sigma_d[..., :-1], jnp.ones_like(sigma_d[..., -1:]) * 0], axis=-1)
+      # #   # sigma_d = jax.lax.cond(
+      # #   #   level=='fine', 
+      # #   #   lambda: jnp.concatenate([sigma_d[..., :-1], jnp.zeros_like(sigma_d[..., -1:])], axis=-1), 
+      # #   #   lambda: sigma_d
+      # #   #   )
 
       blendw = sigma_d / jnp.clip(sigma_d + sigma_s, 1e-19)
       out.update(model_utils.volumetric_rendering_addition(

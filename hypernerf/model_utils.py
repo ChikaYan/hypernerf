@@ -171,6 +171,18 @@ def volumetric_rendering_addition(rgb_d,
   """
   Volumetric Rendering Function with addition
   """
+
+  # if sample_at_infinity:
+  #   # dynamic component should not use the last sample located at infinite far away plane
+  #   # this allows rays on empty dynamic component to not terminate 
+  #   dists = jnp.concatenate([ # distance between each sample along a ray
+  #   z_vals[..., 1:] - z_vals[..., :-1],
+  #   jnp.broadcast_to([1e-19], z_vals[..., :1].shape),
+  #   jnp.broadcast_to([1e10], z_vals[..., :1].shape)
+  #   ], -1)
+
+  # else:
+
   last_sample_z = 1e10 if sample_at_infinity else 1e-19
   dists = jnp.concatenate([ # distance between each sample along a ray
       z_vals[..., 1:] - z_vals[..., :-1],
@@ -178,14 +190,20 @@ def volumetric_rendering_addition(rgb_d,
   ], -1)
   dists = dists * jnp.linalg.norm(dirs[..., None, :], axis=-1)
 
-  alpha_d = (1.0 - jnp.exp(-sigma_d * dists))
-  # if sample_at_infinity:
-  #   # dynamic component should not use the last sample located at infinite far away plane
-  #   # this allows rays on empty dynamic component to not terminate 
-  #   alpha_d = jnp.concatenate([alpha_d[..., :-1], jnp.zeros_like(alpha_d[..., -1:])], axis=-1)
+  if sample_at_infinity:
+    # dynamic component should not use the last sample located at infinite far away plane
+    # this allows rays on empty dynamic component to not terminate 
+    dists_d = jnp.concatenate([ 
+        z_vals[..., 1:] - z_vals[..., :-1],
+        jnp.broadcast_to([1e-19], z_vals[..., :1].shape)
+    ], -1)
+    dists_d = dists_d * jnp.linalg.norm(dirs[..., None, :], axis=-1)
+  else:
+    dists_d = dists
 
+  alpha_d = (1.0 - jnp.exp(-sigma_d * dists_d))
   alpha_s = (1.0 - jnp.exp(-sigma_s * dists))
-  alpha_both = (1.0 - jnp.exp(-(sigma_d + sigma_s) * dists))
+  alpha_both = (1.0 - jnp.exp(-(sigma_d * dists_d + sigma_s * dists)))
   # Prepend a 1.0 to make this an 'exclusive' cumprod as in `tf.math.cumprod`.
   Ts = jnp.concatenate([
       jnp.ones_like(alpha_both[..., :1], alpha_both.dtype),
@@ -201,9 +219,12 @@ def volumetric_rendering_addition(rgb_d,
     rgb = (weights_d.sum(axis=-1) / (weights_d.sum(axis=-1) + weights_s.sum(axis=-1)))[..., None] * jnp.array([1,1,1])
 
   # TODO: verify depth and accuracy computation
-  exp_depth = ((weights_d + weights_s)  * z_vals).sum(axis=-1)
-  med_depth = compute_depth_map((weights_d + weights_s), z_vals)
-  acc = (weights_d + weights_s).sum(axis=-1)
+  weights = (weights_d + weights_s)
+  # if sample_at_infinity:
+  #   weights = jnp.concatenate([weights[...,:-2], weights[...,-2:-1] + weights[...,-1:]], axis=-1)
+  exp_depth = (weights  * z_vals).sum(axis=-1)
+  med_depth = compute_depth_map(weights, z_vals)
+  acc = weights.sum(axis=-1)
   if use_white_background:
     rgb = rgb + (1. - acc[..., None])
 
@@ -215,7 +236,7 @@ def volumetric_rendering_addition(rgb_d,
       'depth': exp_depth,
       'med_depth': med_depth,
       'acc': acc,
-      'weights': (weights_d + weights_s),
+      'weights': weights,
       'weights_dynamic': weights_d,
       'weights_static' : weights_s,
       'dists': dists

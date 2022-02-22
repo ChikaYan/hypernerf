@@ -1,7 +1,7 @@
 include 'configs/decompose/train.gin'
 
 image_scale = 8
-max_steps = 10000
+max_steps = 100000
 
 DecomposeNerfModel.handle_motion_blur = False
 StaticNerfModel.use_viewdirs = True
@@ -18,7 +18,7 @@ TrainConfig.blendw_loss_weight_schedule = {
   'final_value': 0.01,
   'num_steps': 100000 #%max_steps,
 }
-TrainConfig.blendw_loss_skewness = 2.0
+TrainConfig.blendw_loss_skewness = 1.75
 TrainConfig.blendw_ray_loss_weight = 0.001
 TrainConfig.blendw_ray_loss_threshold = .5
 TrainConfig.use_ex_ray_entropy_loss = False
@@ -27,7 +27,7 @@ TrainConfig.shadow_loss_threshold = 0.2
 TrainConfig.shadow_loss_weight = 0.
 TrainConfig.blendw_sample_loss_weight = 0.
 
-EvalConfig.niter_runtime_eval = 2000
+EvalConfig.niter_runtime_eval = 10000
 EvalConfig.nimg_runtime_eval = 3
 EvalConfig.ex_runtime_eval_targets = ('000031', '000111', '000133')
 
