@@ -167,7 +167,6 @@ class SepTrainDataSource(core.DataSource):
     mask = np.where(mask > 0, 1, 0)
     return mask[..., None]
 
-
   def glob_cameras(self, path):
     path = gpath.GPath(path)
     return sorted(path.glob(f'*{self.camera_ext}'))

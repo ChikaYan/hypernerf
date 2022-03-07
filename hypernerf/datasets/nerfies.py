@@ -33,7 +33,7 @@ from hypernerf.datasets import core
 
 
 def load_scene_info(
-    data_dir: types.PathType) -> Tuple[np.ndarray, float, float, float]:
+    data_dir: types.PathType, gt=False) -> Tuple[np.ndarray, float, float, float]:
   """Loads the scene center, scale, near and far from scene.json.
 
   Args:
@@ -100,7 +100,7 @@ class NerfiesDataSource(core.DataSource):
     super().__init__(train_ids=train_ids, val_ids=val_ids,
                      **kwargs)
     self.scene_center, self.scene_scale, self._near, self._far = (
-        load_scene_info(self.data_dir))
+        load_scene_info(self.data_dir, use_gt_camera))
     self.test_camera_trajectory = test_camera_trajectory
 
     self.image_scale = image_scale
@@ -119,6 +119,8 @@ class NerfiesDataSource(core.DataSource):
     if metadata_path.exists():
       with metadata_path.open('r') as f:
         self.metadata_dict = json.load(f)
+
+    self.mask_dir = gpath.GPath(data_dir, 'mask', f'{image_scale}x')
 
   @property
   def near(self) -> float:
@@ -140,6 +142,12 @@ class NerfiesDataSource(core.DataSource):
 
   def load_rgb(self, item_id: str) -> np.ndarray:
     return _load_image(self.rgb_dir / f'{item_id}.png')
+
+  def load_mask(self, item_id: str) -> np.ndarray:
+    mask = _load_image(self.mask_dir / f'{item_id}.png')
+    mask = np.average(mask, axis=-1)
+    mask = np.where(mask > 0, 1, 0)
+    return mask[..., None]
 
   def load_camera(self,
                   item_id: types.PathType,

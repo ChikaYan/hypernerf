@@ -669,7 +669,7 @@ class DataSource(abc.ABC):
           depth = image_utils.rescale_image(depth, scale_factor)
         data['depth'] = depth[..., np.newaxis]
 
-    if self.use_mask:
+    if self.mask_dir.exists():
       data['mask'] = self.load_mask(item_id)
 
     logging.info(
@@ -678,7 +678,7 @@ class DataSource(abc.ABC):
         rgb.shape,
         scale_factor,
         str(data.get('metadata')))
-    if self.use_mask:
+    if self.mask_dir.exists():
       logging.info(f"Loaded mask shape: {data['mask'].shape}")
 
     return data

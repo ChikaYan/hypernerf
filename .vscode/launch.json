@@ -155,10 +155,10 @@
             "console": "integratedTerminal",
             "args": [
                 "--base_folder",
-                "log/kubric_car/decompose_v2/",
-                "--gin_bindings=\"data_dir='./data/kubric_car/'\"",
+                "log/kubric_bouncing_car_sfm/decompose_v4/",
+                "--gin_bindings=\"data_dir='./data/kubric_bouncing_car_sfm/'\"",
                 "--gin_configs",
-                "configs/decompose/eval_decompose_static.gin",
+                "configs/decompose/eval_kubric_metric.gin",
                 "--debug"
             ]
         }

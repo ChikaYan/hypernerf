@@ -85,6 +85,17 @@ def compute_ssim(image1: jnp.ndarray, image2: jnp.ndarray, pad=0,
       max_val=1.0)
   return np.asarray(psnr)
 
+def compute_jaccard_index(mask_pred, mask_gt):
+  tp = np.sum(mask_pred * mask_gt)
+  fp = np.sum(mask_pred * (1-mask_gt))
+  fn = np.sum((1-mask_pred) * mask_gt)
+  return tp / (tp + fn + fp)
+
+def compute_f1(mask_pred, mask_gt):
+  tp = np.sum(mask_pred * mask_gt)
+  fp = np.sum(mask_pred * (1-mask_gt))
+  fn = np.sum((1-mask_pred) * mask_gt)
+  return tp / (tp + 0.5 * (fn + fp))
 
 def compute_stats(batch, model_out):
   """Compute evaluation stats."""
@@ -105,6 +116,14 @@ def compute_stats(batch, model_out):
     logging.info(
         '\tMetrics: mse=%.04f, psnr=%.02f, ssim=%.02f, ms_ssim=%.02f',
         mse, psnr, ssim, ms_ssim)
+
+  if 'mask' in batch and 'extra_rgb_blendw' in model_out:
+    mask_pred = np.where(model_out['extra_rgb_blendw'][...,0] > 0.1, 1, 0)
+    mask_gt = batch['mask'][...,0]
+    jac = compute_jaccard_index(mask_pred, mask_gt)
+    stats['jac_i'] = jac
+    f1 = compute_f1(mask_pred, mask_gt)
+    stats['f1'] = f1
 
   stats = jax.tree_map(np.array, stats)
 
@@ -287,19 +306,31 @@ def process_iterator(tag: str,
                             value=meter.reduce('mean'),
                             step=step)
 
-  # render a video of rgb output
-  if save_dir:
-    render_tags = ['regular'] 
-    if extra_renders:
-      render_tags += list(extra_renders)
-    for render_tag in render_tags:
-      with imageio.get_writer(f'{save_dir}/{tag}/{render_tag}.gif', fps=5, mode='I') as writer:
-        for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/{render_tag}_rgb_*.png')):
-          image = imageio.imread(rgb_path)
-          writer.append_data(image)
-    if KEEP_GIF_ONLY:
-      for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/*.png')):
-        os.remove(rgb_path)
+    # render a video of rgb output
+    if save_dir:
+      render_tags = ['regular'] 
+      if extra_renders:
+        render_tags += list(extra_renders)
+      for render_tag in render_tags:
+        with imageio.get_writer(f'{save_dir}/{tag}/{render_tag}.gif', fps=5, mode='I') as writer:
+          for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/{render_tag}_rgb_*.png')):
+            image = imageio.imread(rgb_path)
+            writer.append_data(image)
+      if KEEP_GIF_ONLY:
+        for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/*.png')):
+          os.remove(rgb_path)
+      # also log metrics
+      metrics_path = save_dir / 'metrics.txt'
+      detail_path = save_dir / 'metrics_breakdown'
+      detail_path.mkdir(parents=True, exist_ok=True)
+      with metrics_path.open('w') as f:
+        for meter_name, meter in meters.items():
+          f.write(f"{meter_name}: {meter.reduce('mean')}\n")
+
+          # write detailed version for every img
+          np.savetxt(detail_path / f"{meter_name}.txt", np.array(meter._values))
+
+        
 
 
 def delete_old_renders(render_dir, max_renders):
