@@ -55,6 +55,8 @@ class ScalarParams:
   shadow_loss_threshold: float = 0.2
   shadow_loss_weight: float = 0.0
   blendw_sample_loss_weight: float = 0.0
+  shadow_r_loss_weight: float = 0.0
+  shadow_r_l2_loss_weight: float = 0.0
   background_noise_std: float = 0.001
   hyper_reg_loss_weight: float = 0.0
 
@@ -311,6 +313,66 @@ def compute_blendw_sample_loss(rets):
 
   return loss / 2.
 
+@functools.partial(jax.jit)
+def compute_shadow_r_loss(rets, clip_threshold=1e-19, threshold=0.):
+  """
+  Compute a reverted entropy loss to encourage shadow_r to be close to 0.5
+  Or, a L1 loss 
+  """
+
+  shadow_r = jnp.concatenate([rets['coarse']['shadow_r'], rets['fine']['shadow_r']],-1)
+
+  # shadow_r = jnp.clip(shadow_r, a_min=clip_threshold, a_max=1-clip_threshold)
+  # rev_shadow_r = jnp.clip(1-shadow_r, a_min=clip_threshold) # a_max behaving weird with small clip threshold
+  # entropy = shadow_r * jnp.log(shadow_r) + rev_shadow_r * jnp.log(rev_shadow_r)
+  # loss = entropy + jnp.log(2) # make sure positive loss
+
+  mask = jnp.where(threshold < shadow_r, 1., 0.) 
+  loss = (((shadow_r + shadow_r**2) * mask)).mean()
+
+  return loss
+
+@functools.partial(jax.jit)
+def compute_l2_shadow_r_loss(rets, threshold=0.):
+  """
+  Compute a clipped L2 loss for shadow_r to penalize for high shadow value
+  """
+
+  # shadow_r = jnp.concatenate([rets['coarse']['shadow_r'], rets['fine']['shadow_r']],-1)
+
+  # # rev_shadow_r = jnp.clip(1-shadow_r, a_min=clip_threshold) # a_max behaving weird with small clip threshold
+  # # entropy = shadow_r * jnp.log(shadow_r) + rev_shadow_r * jnp.log(rev_shadow_r)
+  # # loss = entropy + jnp.log(2) # make sure positive loss
+
+  # mask = jnp.where(shadow_r > threshold, 1., 0.) 
+  # loss = ((shadow_r**2 * mask)).mean()
+
+  # return loss
+
+  loss = 0.
+
+  for shadow_r in [rets['coarse']['shadow_r'], rets['fine']['shadow_r']]:
+    area_loss = jnp.max(shadow_r, axis=-1) ** 2 # mask * jnp.log(jnp.sum(blendw, -1, keepdims=True)) #
+    loss += area_loss.mean()
+
+  return loss / 2.
+
+
+# @functools.partial(jax.jit)
+# def compute_shadow_r_consistency_loss(rets, clip_threshold=1e-19):
+#   """
+#   Compute a loss to encourage shadow_r to be same everywhere
+#   """
+
+#   shadow_r = jnp.concatenate([rets['coarse']['shadow_r'], rets['fine']['shadow_r']],-1)
+#   shadow_r = jnp.clip(shadow_r, a_min=clip_threshold, a_max=1-clip_threshold)
+#   rev_shadow_r = jnp.clip(1-shadow_r, a_min=clip_threshold) # a_max behaving weird with small clip threshold
+#   entropy = shadow_r * jnp.log(shadow_r) + rev_shadow_r * jnp.log(rev_shadow_r)
+#   entropy += jnp.log(2)
+
+#   return entropy
+
+
 @functools.partial(jax.jit,
                    static_argnums=0,
                    static_argnames=('disable_hyper_grads',
@@ -528,7 +590,7 @@ def train_step(model: models.NerfModel,
         scalar_params.bg_decompose_loss_weight * bg_decompose_loss)
       stats['bg_decompose_loss'] = bg_decompose_loss
 
-    if isinstance(model,models.DecomposeNerfModel) and model.use_blendw_loss:
+    if isinstance(model,models.DecomposeNerfModel):
       # only apply blendw loss when blendw is not forced
       # blendw_loss = jax.lax.cond(
       #   state.extra_params['force_blendw'], 
@@ -574,6 +636,18 @@ def train_step(model: models.NerfModel,
       losses['blendw_sample_loss'] = (
         scalar_params.blendw_sample_loss_weight * blendw_sample_loss)
       stats['blendw_sample_loss'] = blendw_sample_loss
+
+      if model.use_shadow_model:
+        # apply shadow model related loss
+        shadow_r_loss = compute_shadow_r_loss(ret)
+        losses['shadow_r_loss'] = (
+          scalar_params.shadow_r_loss_weight * shadow_r_loss)
+        stats['shadow_r_loss'] = shadow_r_loss
+
+        shadow_r_l2_loss = compute_l2_shadow_r_loss(ret)
+        losses['shadow_r_l2_loss'] = (
+          scalar_params.shadow_r_l2_loss_weight * shadow_r_l2_loss)
+        stats['shadow_r_l2_loss'] = shadow_r_l2_loss
 
       # log blendws
       stats['coarse_blendw'] = ret['coarse']['blendw'].mean()

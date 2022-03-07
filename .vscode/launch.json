@@ -20,9 +20,9 @@
             "args": [
                 "--base_folder",
                 "log/debug/original",
-                "--gin_bindings=\"data_dir='./data/kubric_car/'\"",
+                "--gin_bindings=\"data_dir='./data/kubric_car_only/'\"",
                 "--gin_configs",
-                "configs/test_local.gin",
+                "configs/test_local_gt.gin",
                 "--debug"
             ]
         },
@@ -49,7 +49,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--base_folder",
-                "debug/decompose",
+                "log/debug/decompose",
                 "--gin_bindings=\"data_dir='./data/my_hand_large_motion/'\"",
                 "--gin_configs",
                 "configs/decompose/train_add_blend.gin",
@@ -64,7 +64,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--base_folder",
-                "log/my_hand_large_motion/render_debug/better_no_far_d",
+                "log/debug/decompose",
                 "--gin_bindings=\"data_dir='./data/my_hand_large_motion/'\"",
                 "--gin_configs",
                 "configs/decompose/train_debug.gin",

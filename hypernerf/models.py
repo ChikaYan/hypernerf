@@ -1185,13 +1185,15 @@ class DecomposeNerfModel(NerfModel):
   # Scale applied to deformation rendering
   deformation_render_scale: float = 1.0
 
-  # blending weight regularization loss
-  use_blendw_loss: bool = True
   # where to output blendw. -1 means outputting together with density (last layer)
   blendw_out_depth: int = -1
 
   # Whether to use an additional shadow model to deal with dynamic shadow effects
-  # use_shadow_model: bool = False
+  use_shadow_model: bool = False
+  # The threshold on sigma to determine whether shadow blending should be applied or not
+  sigma_threshold: float = 0.1
+  separate_shadow_model: bool = False
+  shadow_r_shift: float = 0.
 
   # Whether to deal with motion blur in the dynamic component or not
   handle_motion_blur: bool = False
@@ -1335,7 +1337,10 @@ class DecomposeNerfModel(NerfModel):
             skips=self.nerf_skips,
             alpha_channels=self.alpha_channels,
             rgb_channels=self.rgb_channels,
-            blendw_output_depth=self.blendw_out_depth)
+            blendw_output_depth=self.blendw_out_depth if self.blend_mode != 'add' else -2,
+            output_shadow_r = self.use_shadow_model
+            # if use add style blending, no need to output blendw
+            )
     }
     if self.num_fine_samples > 0:
       nerf_mlps['fine'] = modules.BlendwNerfMLP(
@@ -1348,13 +1353,25 @@ class DecomposeNerfModel(NerfModel):
           skips=self.nerf_skips,
           alpha_channels=self.alpha_channels,
           rgb_channels=self.rgb_channels,
-          blendw_output_depth=self.blendw_out_depth)
+          blendw_output_depth=self.blendw_out_depth if self.blend_mode != 'add' else -2,
+          output_shadow_r = self.use_shadow_model
+          )
     self.nerf_mlps = nerf_mlps
 
-    # if self.use_shadow_model:
-    #   if not self.use_warp:
-    #     raise NotImplementedError('Shadow model can only be used when use_warp is true')
-    #   self.shadow_warp_field = self.warp_field_cls()
+    if self.use_shadow_model:
+      if not self.use_warp:
+        raise NotImplementedError('Shadow model can only be used when use_warp is true')
+      self.shadow_warp_field = self.warp_field_cls()
+      # self.shadow_r_mlp = modules.ShadowMLP()
+      if self.separate_shadow_model:
+        self.shadow_model =  modules.ShadowMLP(
+          trunk_depth=self.nerf_trunk_depth,
+          trunk_width=self.nerf_trunk_width,
+          activation=self.activation,
+          norm=norm_layer,
+          skips=self.nerf_skips,
+          )
+
 
     if self.handle_motion_blur:
       self.blur_mlp = modules.BlurMLP()
@@ -1430,14 +1447,22 @@ class DecomposeNerfModel(NerfModel):
     rgb = nn.sigmoid(raw['rgb'])
     sigma = self.sigma_activation(jnp.squeeze(raw['alpha'], axis=-1))
     blendw = nn.sigmoid(jnp.squeeze(raw['blendw'], axis=-1))
+    shadow_r = None
+    if self.use_shadow_model:
+      if self.separate_shadow_model:
+        shadow_r = self.shadow_model(points_feat, alpha_condition)['shadow_r']
+        # shiftted sigmoid to start with low shadow_r
+        shadow_r = nn.sigmoid(jnp.squeeze(shadow_r - self.shadow_r_shift, axis=-1))
+      else:
+        shadow_r = nn.sigmoid(jnp.squeeze(raw['shadow_r'] - self.shadow_r_shift, axis=-1))
 
-    return rgb, sigma, blendw
+    return rgb, sigma, blendw, shadow_r
 
   def map_spatial_points(self, points, warp_embed, extra_params, use_warp=True,
-                         return_warp_jacobian=False):
+                         return_warp_jacobian=False, shadow_warp=False):
     warp_jacobian = None
     if self.use_warp and use_warp:
-      warp_fn = jax.vmap(jax.vmap(self.warp_field, in_axes=(0, 0, None, None)),
+      warp_fn = jax.vmap(jax.vmap(self.warp_field if not shadow_warp else self.shadow_warp_field, in_axes=(0, 0, None, None)),
                          in_axes=(0, 0, None, None)) # double vmap needed, because the points and warp_embed are in shape (#batch, #point, value)
       warp_out = warp_fn(points,
                          warp_embed,
@@ -1483,7 +1508,7 @@ class DecomposeNerfModel(NerfModel):
 
   def map_points(self, points, warp_embed, hyper_embed, extra_params,
                  use_warp=True, return_warp_jacobian=False,
-                 hyper_point_override=None):
+                 hyper_point_override=None, shadow_warp=False):
     """Map input points to warped spatial and hyper points.
 
     Args:
@@ -1502,7 +1527,7 @@ class DecomposeNerfModel(NerfModel):
     # Map input points to warped spatial and hyper points.
     spatial_points, warp_jacobian = self.map_spatial_points(
         points, warp_embed, extra_params, use_warp=use_warp,
-        return_warp_jacobian=return_warp_jacobian)
+        return_warp_jacobian=return_warp_jacobian, shadow_warp=shadow_warp)
     hyper_points = self.map_hyper_points(
         points, hyper_embed, extra_params,
         # Override hyper points if present in metadata dict.
@@ -1520,6 +1545,7 @@ class DecomposeNerfModel(NerfModel):
     warp_embed = self.warp_embed(warp_embed)
     return self.warp_field(points, warp_embed, extra_params)
 
+  # TODO: remove this function and refactory background decompose loss
   def get_blendw(self,
                 level,
                 points,
@@ -1578,7 +1604,6 @@ class DecomposeNerfModel(NerfModel):
 
     return blendw
 
-
   def blend_results(self, render_mode, rgb_d, sigma_d, rgb_s, sigma_s, blendw, points, warped_points):
     # function for blending dynamic and static outputs together, based on the render mode
     
@@ -1635,7 +1660,6 @@ class DecomposeNerfModel(NerfModel):
     else:
       raise NotImplementedError(f'Rendering model {self.render_mode} is not recognized')
     return rgb, sigma
-
 
   def render_samples_init_both(self,
                      level,
@@ -1836,8 +1860,7 @@ class DecomposeNerfModel(NerfModel):
     blendw = jax.lax.cond(cond, lambda: jnp.ones_like(blendw) * 0.5, lambda: blendw)
     out.update(jax.lax.cond(cond, freeze_blendw_blending, unfreeze_blendw_blending))
 
-    if self.use_blendw_loss:
-      out['blendw'] = blendw
+    out['blendw'] = blendw
 
     # Add a map containing the returned points at the median depth.
     depth_indices = model_utils.compute_depth_index(out['weights'])
@@ -1903,13 +1926,43 @@ class DecomposeNerfModel(NerfModel):
         # Override hyper points if present in metadata dict.
         hyper_point_override=metadata.get('hyper_point'))
 
-    rgb_d, sigma_d, blendw = self.query_template(
+    rgb_d, sigma_d, blendw, shadow_r = self.query_template(
         level,
         warped_points,
         viewdirs,
         metadata,
         extra_params=extra_params,
         metadata_encoded=metadata_encoded)
+
+    if self.use_shadow_model:
+      # # generate predictions for shadow using shadow warp network
+      # warped_points_shadow, _ = self.map_points(
+      #     points, warp_embed, hyper_embed, extra_params, use_warp=use_warp,
+      #     return_warp_jacobian=return_warp_jacobian,
+      #     hyper_point_override=metadata.get('hyper_point'), shadow_warp=True)
+
+      # rgb_d_s, sigma_d_s, blendw_s, shadow_r = self.query_template(
+      #     level,
+      #     warped_points_shadow,
+      #     viewdirs,
+      #     metadata,
+      #     extra_params=extra_params,
+      #     metadata_encoded=metadata_encoded)
+
+      # get shadow_r from shadow mlp
+      # shadow_r = self.shadow_r_mlp(warp_embed[:, 0, :]) * jnp.ones_like(sigma_d_s)
+      # shadow_r = nn.sigmoid(shadow_r)
+      
+      # # sigma version: only apply shadow effects where sigma_d is above a threshold
+      # # sigma_threshold = 0.0001
+      # mask = jnp.where(sigma_d_s > self.sigma_threshold, 1., 0.) 
+      mask = jnp.ones_like(shadow_r)
+      shadow_r = shadow_r * mask
+      # shadow_r = jnp.zeros_like(shadow_r)
+    else:
+      shadow_r = jnp.zeros_like(sigma_d)
+
+    out['shadow_r'] = shadow_r
 
     # Filter densities based on rendering options.
     sigma_d = filter_sigma(points, sigma_d, render_opts)
@@ -1932,8 +1985,6 @@ class DecomposeNerfModel(NerfModel):
       lambda: jnp.ones_like(blendw) * extra_params['freeze_blendw_value'], 
       lambda: blendw
       )
-
-    # if self.use_blendw_loss:
     
 
     if self.handle_motion_blur:
@@ -2167,6 +2218,7 @@ class DecomposeNerfModel(NerfModel):
           rgb_s,
           sigma_s,
           blendw,
+          shadow_r,
           z_vals,
           directions,
           use_white_background=self.use_white_background,
@@ -2180,10 +2232,12 @@ class DecomposeNerfModel(NerfModel):
         ex_rgb_d, ex_sigma_d = rgb_d, sigma_d 
         ex_rgb_s, ex_sigma_s = rgb_s, sigma_s
         ex_blendw = blendw
+        ex_shadow_r = shadow_r
         blendw_rendering = False
         if render_mode == 'static':
           ex_rgb_d = jnp.zeros_like(ex_rgb_d)
           ex_sigma_d = jnp.zeros_like(ex_sigma_d)
+          ex_shadow_r = jnp.zeros_like(shadow_r)
         elif render_mode == 'dynamic':
           ex_rgb_s = jnp.zeros_like(ex_rgb_s)
           ex_sigma_s = jnp.zeros_like(ex_sigma_s)
@@ -2196,6 +2250,15 @@ class DecomposeNerfModel(NerfModel):
         #   rgb = jnp.clip((warped_points[...,:3] - points), 0, 1)
         #   ex_rgb_d = ex_rgb_s = jnp.ones_like(rgb) * jnp.sqrt(jnp.sum(rgb ** 2, axis=-1, keepdims=True)) * self.deformation_render_scale
         #   ex_sigma_s = jnp.zeros_like(ex_sigma_s)
+        elif render_mode == 'shadow':
+          # render the shadow_r
+          # only renders the static scene
+          ex_rgb_d = jnp.zeros_like(ex_rgb_d)
+          ex_sigma_d = jnp.zeros_like(ex_sigma_d)
+          ex_rgb_s = jnp.ones_like(ex_rgb_s)
+          ex_shadow_r = 1 - shadow_r
+        elif render_mode == 'regular_no_shadow':
+          ex_shadow_r = jnp.zeros_like(shadow_r)
         elif render_mode == 'ray_segmentation':
           # render whether the sum of blendw on a ray is above a threshold or not
           # volume rendering not needed
@@ -2242,6 +2305,7 @@ class DecomposeNerfModel(NerfModel):
           ex_rgb_s,
           ex_sigma_s,
           ex_blendw,
+          ex_shadow_r,
           z_vals,
           directions,
           use_white_background=self.use_white_background,

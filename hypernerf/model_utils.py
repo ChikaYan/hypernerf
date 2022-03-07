@@ -162,6 +162,7 @@ def volumetric_rendering_addition(rgb_d,
                                   rgb_s,
                                   sigma_s,
                                   blendw,
+                                  shadow_r,
                                   z_vals,
                                   dirs,
                                   use_white_background,
@@ -182,6 +183,11 @@ def volumetric_rendering_addition(rgb_d,
   #   ], -1)
 
   # else:
+
+  # apply shadow blending
+  # which is just a scaling down effects applied to the static radiance
+
+  rgb_s = rgb_s * (1. - shadow_r)[..., None]
 
   last_sample_z = 1e10 if sample_at_infinity else 1e-19
   dists = jnp.concatenate([ # distance between each sample along a ray

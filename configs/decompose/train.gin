@@ -25,7 +25,6 @@ DecomposeNerfModel.hyper_slice_method = 'bendy_sheet' # 'none' #
 DecomposeNerfModel.hyper_sheet_mlp_cls = @HyperSheetMLP
 DecomposeNerfModel.hyper_use_warp_embed = True
 DecomposeNerfModel.use_warp = True
-DecomposeNerfModel.use_blendw_loss = True
 DecomposeNerfModel.blendw_out_depth = 7
 
 TrainConfig.print_every = 100

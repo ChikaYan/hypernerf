@@ -11,8 +11,8 @@ include 'configs/test_local.gin'
 
 EvalConfig.subname = 'eval'
 EvalConfig.normalise_rendering = False
-NerfModel.extra_renders = ('deformation_norm',)
-NerfModel.deformation_render_scale = 2.0
+# NerfModel.extra_renders = ('deformation_norm',)
+# NerfModel.deformation_render_scale = 2.0
 
 EvalConfig.num_train_eval = 50
 EvalConfig.num_val_eval = 20

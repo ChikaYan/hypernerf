@@ -222,6 +222,8 @@ class BlendwNerfMLP(NerfMLP):
   norm: Optional[Any] = None
   skips: Tuple[int] = (4,)
 
+  output_shadow_r: bool = False
+
   @nn.compact
   def __call__(self, x, alpha_condition, rgb_condition):
     """Multi-layer perception for nerf.
@@ -254,6 +256,10 @@ class BlendwNerfMLP(NerfMLP):
     if self.blendw_output_depth == -1:
       self.blendw_output_depth = self.trunk_depth
 
+    alpha_channels = self.alpha_channels
+    if self.output_shadow_r:
+      alpha_channels = self.alpha_channels + 1
+
     rgb_mlp = MLP(depth=self.rgb_branch_depth,
                   width=self.rgb_branch_width,
                   hidden_activation=self.activation,
@@ -267,7 +273,7 @@ class BlendwNerfMLP(NerfMLP):
                     hidden_norm=self.norm,
                     hidden_init=jax.nn.initializers.glorot_uniform(),
                     output_init=jax.nn.initializers.glorot_uniform(),
-                    output_channels=self.alpha_channels)
+                    output_channels=alpha_channels)
     blendw_mlp = MLP(depth=self.blendw_branch_depth, # although depth is 0, it still goes thorugh a top "logit" layer
                     width=self.blendw_branch_width,
                     hidden_activation=self.activation,
@@ -279,6 +285,7 @@ class BlendwNerfMLP(NerfMLP):
 
     # use in-line MLP to support blendw output at different layer
     inputs = x
+    blendw = None
     for i in range(self.trunk_depth):
       if i == self.blendw_output_depth:
         # output blendw
@@ -306,6 +313,9 @@ class BlendwNerfMLP(NerfMLP):
     else:
       alpha_input = x
     alpha = alpha_mlp(alpha_input)
+    if self.output_shadow_r:
+      shadow_r = alpha[...,-1:]
+      alpha = alpha[...,:-1]
 
     if rgb_condition is not None:
       rgb_condition = broadcast_condition(rgb_condition)
@@ -314,12 +324,19 @@ class BlendwNerfMLP(NerfMLP):
       rgb_input = x
     rgb = rgb_mlp(rgb_input)
 
-    return {
+    if blendw is None:
+      blendw = jnp.zeros_like(alpha)
+
+    ret = {
         'rgb': rgb.reshape((-1, num_samples, self.rgb_channels)),
         'alpha': alpha.reshape((-1, num_samples, self.alpha_channels)),
         'blendw': blendw.reshape((-1, num_samples, self.alpha_channels))
     }
 
+    if self.output_shadow_r:
+       ret['shadow_r'] = shadow_r.reshape((-1, num_samples, 1))
+
+    return ret
 
 @gin.configurable(denylist=['name'])
 class GLOEmbed(nn.Module):
@@ -411,3 +428,106 @@ class BlurMLP(nn.Module):
               output_init=self.output_init)
 
     return mlp(embed)
+
+@gin.configurable(denylist=['name'])
+class GlobalShadowMLP(nn.Module):
+  """An MLP that predicts a global shadow rate value"""
+  output_channels: int = 1
+
+  depth: int = 4
+  width: int = 64
+  hidden_init: types.Initializer = jax.nn.initializers.glorot_uniform()
+  output_init: types.Initializer = jax.nn.initializers.glorot_uniform()
+
+  @nn.compact
+  def __call__(self, embed):
+    mlp = MLP(depth=self.depth,
+              width=self.width,
+              hidden_init=self.hidden_init,
+              output_channels=self.output_channels,
+              output_init=self.output_init)
+
+    return mlp(embed)
+
+
+class ShadowMLP(NerfMLP):
+  """
+  """
+  output_channels: int = 1
+
+  trunk_depth: int = 8
+  trunk_width: int = 256
+
+  activation: types.Activation = nn.relu
+  norm: Optional[Any] = None
+  skips: Tuple[int] = (4,)
+
+  @nn.compact
+  def __call__(self, x, alpha_condition):
+    """Multi-layer perception for nerf.
+
+    Args:
+      x: sample points with shape [batch, num_coarse_samples, feature].
+      alpha_condition: a condition array provided to the alpha branch.
+      rgb_condition: a condition array provided in the RGB branch.
+
+    Returns:
+      raw: [batch, num_coarse_samples, rgb_channels+alpha_channels].
+    """
+    dense = functools.partial(
+        nn.Dense, kernel_init=jax.nn.initializers.glorot_uniform())
+
+    feature_dim = x.shape[-1]
+    num_samples = x.shape[1]
+    x = x.reshape([-1, feature_dim])
+
+    def broadcast_condition(c):
+      # Broadcast condition from [batch, feature] to
+      # [batch, num_coarse_samples, feature] since all the samples along the
+      # same ray has the same viewdir.
+      c = jnp.tile(c[:, None, :], (1, num_samples, 1))
+      # Collapse the [batch, num_coarse_samples, feature] tensor to
+      # [batch * num_coarse_samples, feature] to be fed into nn.Dense.
+      c = c.reshape([-1, c.shape[-1]])
+      return c
+
+
+    shadow_mlp = MLP(depth=self.alpha_branch_depth, # although depth is 0, it still goes thorugh a top "logit" layer
+                    width=self.alpha_branch_width,
+                    hidden_activation=self.activation,
+                    hidden_norm=self.norm,
+                    hidden_init=jax.nn.initializers.glorot_uniform(),
+                    output_init=jax.nn.initializers.glorot_uniform(),
+                    output_channels=self.output_channels)
+
+
+
+    # use in-line MLP to support blendw output at different layer
+    inputs = x
+    blendw = None
+    for i in range(self.trunk_depth):
+
+      layer = nn.Dense(
+          self.trunk_width,
+          use_bias=True,
+          kernel_init=jax.nn.initializers.glorot_uniform(),
+          name=f'trunk_hidden_{i}')
+      if i in self.skips:
+        x = jnp.concatenate([x, inputs], axis=-1)
+      x = layer(x)
+      if self.norm is not None:
+        x = self.norm()(x) 
+      x = self.activation(x)
+    
+    # alpha condition is none
+    if (alpha_condition is not None):
+      bottleneck = dense(self.trunk_width, name='bottleneck')(x) 
+
+    if alpha_condition is not None:
+      alpha_condition = broadcast_condition(alpha_condition)
+      alpha_input = jnp.concatenate([bottleneck, alpha_condition], axis=-1)
+    else:
+      alpha_input = x
+    shadow_r = shadow_mlp(alpha_input)
+
+    return {'shadow_r': shadow_r.reshape((-1, num_samples, 1))}

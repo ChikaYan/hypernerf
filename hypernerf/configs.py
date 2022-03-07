@@ -115,6 +115,8 @@ class TrainConfig:
   shadow_loss_threshold: float = 0.2
   shadow_loss_weight: float = 0.0
   blendw_sample_loss_weight: float = 0.0
+  shadow_r_loss_weight: Optional[ScheduleDef] = None
+  shadow_r_l2_loss_weight: float = 0.0
   # The batch size for background regularization loss.
   background_points_batch_size: int = 16384
   # Whether to use the warp reg loss.

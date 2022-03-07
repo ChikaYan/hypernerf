@@ -96,6 +96,8 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/blendw_area_loss', stats.get('blendw_area_loss'))
   _log_scalar('loss/shadow_loss', stats.get('shadow_loss'))
   _log_scalar('loss/blendw_sample_loss', stats.get('blendw_sample_loss'))
+  _log_scalar('loss/shadow_r_loss', stats.get('shadow_r_loss'))
+  _log_scalar('loss/shadow_r_l2_loss', stats.get('shadow_r_l2_loss'))
   _log_scalar('loss/ex_blendw_ray_loss', stats.get('ex_blendw_ray_loss'))
   _log_scalar('loss/ex_density_ray_loss', stats.get('ex_density_ray_loss'))
 
@@ -292,6 +294,7 @@ def main(argv):
   elastic_loss_weight_sched = schedules.from_config(
       train_config.elastic_loss_weight_schedule)
   blendw_loss_weight_sched = schedules.from_config(train_config.blendw_loss_weight_schedule)
+  shadow_r_loss_weight_sched = schedules.from_config(train_config.shadow_r_loss_weight)
 
 
   if train_config.freeze_dynamic_steps > 0:
@@ -350,6 +353,8 @@ def main(argv):
       shadow_loss_threshold=train_config.shadow_loss_threshold,
       shadow_loss_weight=train_config.shadow_loss_weight,
       blendw_sample_loss_weight=train_config.blendw_sample_loss_weight,
+      shadow_r_loss_weight=shadow_r_loss_weight_sched(0),
+      shadow_r_l2_loss_weight=train_config.shadow_r_l2_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   new_state = state
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
@@ -435,7 +440,9 @@ def main(argv):
     scalar_params = scalar_params.replace( # update the per-step params: lr and elastic loss
         learning_rate=learning_rate_sched(step),
         elastic_loss_weight=elastic_loss_weight_sched(step),
-        blendw_loss_weight=blendw_loss_weight_sched(step))
+        blendw_loss_weight=blendw_loss_weight_sched(step),
+        shadow_r_loss_weight=shadow_r_loss_weight_sched(step),
+        )
     # pytype: enable=attribute-error
     nerf_alpha = jax_utils.replicate(nerf_alpha_sched(step), devices)
     warp_alpha = jax_utils.replicate(warp_alpha_sched(step), devices)
@@ -520,7 +527,7 @@ def main(argv):
         logging.info('\tfine metrics: %s', fine_metrics_str)
 
     if step % train_config.save_every == 0 and jax.process_index() == 0:
-      training.save_checkpoint(checkpoint_dir, state, keep=10)
+      training.save_checkpoint(checkpoint_dir, state, keep=2)
 
     if step % train_config.log_every == 0 and jax.process_index() == 0:
       # Only log via process 0.
@@ -594,7 +601,7 @@ def main(argv):
               extra_render_tags=extra_render_tags)
 
   if train_config.max_steps % train_config.save_every != 0:
-    training.save_checkpoint(checkpoint_dir, state, keep=10)
+    training.save_checkpoint(checkpoint_dir, state, keep=2)
 
   
 def process_iterator(tag: str,
