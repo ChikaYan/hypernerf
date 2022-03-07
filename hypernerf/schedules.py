@@ -200,6 +200,30 @@ class DelayedSchedule(Schedule):
 
     return delay_rate * self.base_schedule(step)
 
+class ExpIncreaseSchedule(Schedule):
+  """Exponentially increasing scheduler."""
+
+  def __init__(self, initial_value, final_value, num_steps, eps=1e-10):
+    super().__init__()
+    if initial_value > final_value:
+      raise ValueError('Final value must be larger than initial value.')
+
+    self.initial_value = initial_value
+    self.final_value = final_value
+    self.num_steps = num_steps
+    self.eps = eps
+
+  def get(self, step):
+    """Get the value for the given step."""
+    if step >= self.num_steps:
+      return jnp.full_like(step, self.final_value, dtype=jnp.float32)
+
+    final_value = max(self.final_value, self.eps)
+    base = final_value / self.initial_value
+    exponent = step / (self.num_steps - 1)
+
+    return self.initial_value * base**exponent
+
 
 SCHEDULE_MAP = {
     'constant': ConstantSchedule,
@@ -209,4 +233,5 @@ SCHEDULE_MAP = {
     'step': StepSchedule,
     'piecewise': PiecewiseSchedule,
     'delayed': DelayedSchedule,
+    'exp_increase': ExpIncreaseSchedule
 }
