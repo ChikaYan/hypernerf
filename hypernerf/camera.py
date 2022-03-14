@@ -238,7 +238,7 @@ class Camera:
           p1=self.tangential_distortion[0],
           p2=self.tangential_distortion[1])
 
-    dirs = np.stack([x, y, np.ones_like(x)], axis=-1)
+    dirs = np.stack([x, y, np.ones_like(x)], axis=-1) # look into +z axis direction
     return dirs / np.linalg.norm(dirs, axis=-1, keepdims=True)
 
   def pixels_to_rays(self, pixels: np.ndarray) -> np.ndarray:

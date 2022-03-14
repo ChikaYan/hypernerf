@@ -72,6 +72,21 @@
             ]
         },
         {
+            "name": "train_decompose_cdw",
+            "type": "python",
+            "request": "launch",
+            "program": "train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--base_folder",
+                "log/debug/decompose",
+                "--gin_bindings=\"data_dir='./data/peopleInShade/'\"",
+                "--gin_configs",
+                "configs/decompose/train_cdw.gin",
+                "--debug"
+            ]
+        },
+        {
             "name": "train_separate",
             "type": "python",
             "request": "launch",
@@ -155,10 +170,25 @@
             "console": "integratedTerminal",
             "args": [
                 "--base_folder",
-                "log/kubric_bouncing_car_sfm/decompose_v4/",
-                "--gin_bindings=\"data_dir='./data/kubric_bouncing_car_sfm/'\"",
+                "log/kubric_single_car/decompose_v2",
+                "--gin_bindings=\"data_dir='./data/kubric_single_car/'\"",
                 "--gin_configs",
-                "configs/decompose/eval_kubric_metric.gin",
+                "configs/decompose/train_kubric.gin",
+                "--debug"
+            ]
+        },
+        {
+            "name": "eval_cdw",
+            "type": "python",
+            "request": "launch",
+            "program": "eval.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--base_folder",
+                "log/cdw/peopleInShade/decompose_v7",
+                "--gin_bindings=\"data_dir='./data/cdw/peopleInShade/'\"",
+                "--gin_configs",
+                "configs/decompose/train_cdw.gin",
                 "--debug"
             ]
         }

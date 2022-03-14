@@ -146,7 +146,11 @@ class NerfiesDataSource(core.DataSource):
   def load_mask(self, item_id: str) -> np.ndarray:
     mask = _load_image(self.mask_dir / f'{item_id}.png')
     mask = np.average(mask, axis=-1)
-    mask = np.where(mask > 0, 1, 0)
+    if self.mask_interest_region:
+      mask = np.where(mask==100/255, -1, mask)
+    # mask = np.where(mask>0, 1, mask)
+    mask = np.where(mask>0.9, 1, mask)
+    mask = np.where(np.logical_and(0<=mask, mask<0.9), 0, mask)
     return mask[..., None]
 
   def load_camera(self,

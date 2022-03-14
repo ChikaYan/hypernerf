@@ -1195,6 +1195,9 @@ class DecomposeNerfModel(NerfModel):
   separate_shadow_model: bool = False
   shadow_r_shift: float = 0.
 
+  # threshold for blendw mask
+  blendw_mask_threshold: float = 0.5
+
   # Whether to deal with motion blur in the dynamic component or not
   handle_motion_blur: bool = False
 
@@ -2245,6 +2248,14 @@ class DecomposeNerfModel(NerfModel):
           ex_rgb_d = jnp.ones_like(ex_rgb_d) # * blendw[...,None]
           ex_rgb_s = jnp.zeros_like(ex_rgb_d)
           blendw_rendering = True
+        elif render_mode == 'mask':
+          # render a thresholded blendw as mask
+          if 'extra_rgb_blendw' in out:
+            mask = jnp.where(out['extra_rgb_blendw'] > self.blendw_mask_threshold, 1., 0.)
+            out[f'extra_rgb_{render_mode}'] =  mask
+            continue
+          else:
+            raise NotImplementedError('mask must be rendered after blendw')
         # elif render_mode == 'deformation_norm':
         #   # Not supported yet!
         #   rgb = jnp.clip((warped_points[...,:3] - points), 0, 1)

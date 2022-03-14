@@ -243,8 +243,13 @@ def volumetric_rendering_addition(rgb_d,
       'med_depth': med_depth,
       'acc': acc,
       'weights': weights,
-      'weights_dynamic': weights_d,
-      'weights_static' : weights_s,
+      'weights_d': weights_d,
+      'weights_s' : weights_s,
+      'alpha_d': alpha_d,
+      'alpha_s' : alpha_s,
+      'alpha_both' : alpha_both,
+      'sigma_d': sigma_d,
+      'sigma_s' : sigma_s,
       'dists': dists
   }
   return out
@@ -274,17 +279,22 @@ def volumetric_rendering_blending(rgb_d,
   alpha_d = (1.0 - jnp.exp(-sigma_d * dists)) * blendw
   alpha_s = (1.0 - jnp.exp(-sigma_s * dists)) * (1. - blendw)
   # Prepend a 1.0 to make this an 'exclusive' cumprod as in `tf.math.cumprod`.
-  Ts_d = jnp.concatenate([
-      jnp.ones_like(alpha_d[..., :1], alpha_d.dtype),
-      jnp.cumprod(1.0 - alpha_d[..., :-1] + eps, axis=-1),
-  ], axis=-1)
-  Ts_s = jnp.concatenate([
+
+  # Ts_d = jnp.concatenate([
+  #     jnp.ones_like(alpha_d[..., :1], alpha_d.dtype),
+  #     jnp.cumprod(1.0 - alpha_d[..., :-1] + eps, axis=-1),
+  # ], axis=-1)
+  # Ts_s = jnp.concatenate([
+  #     jnp.ones_like(alpha_s[..., :1], alpha_s.dtype),
+  #     jnp.cumprod(1.0 - alpha_s[..., :-1] + eps, axis=-1),
+  # ], axis=-1)
+  Ts = jnp.concatenate([
       jnp.ones_like(alpha_s[..., :1], alpha_s.dtype),
-      jnp.cumprod(1.0 - alpha_s[..., :-1] + eps, axis=-1),
+      jnp.cumprod((1.0 - alpha_s[..., :-1]) * (1.0 - alpha_d[..., :-1]) + eps, axis=-1),
   ], axis=-1)
 
-  weights_d = alpha_d * Ts_d
-  weights_s = alpha_s * Ts_s
+  weights_d = alpha_d * Ts
+  weights_s = alpha_s * Ts
 
   rgb = (weights_d[..., None] * rgb_d + weights_s[..., None] * rgb_s).sum(axis=-2)
 

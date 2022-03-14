@@ -10,23 +10,23 @@ DecomposeNerfModel.handle_motion_blur = False
 StaticNerfModel.use_viewdirs = True
 ####################################
 DecomposeNerfModel.use_viewdirs = True
-DecomposeNerfModel.extra_renders = ('static', 'dynamic', 'blendw', 'shadow', 'regular_no_shadow')
+DecomposeNerfModel.extra_renders = ('static', 'dynamic', 'blendw', 'mask') # 'shadow', 'regular_no_shadow'
 DecomposeNerfModel.blend_mode = 'add'
 DecomposeNerfModel.use_sample_at_infinity = True
 DecomposeNerfModel.use_shadow_model = False
 
 # TrainConfig.blendw_loss_weight_schedule = ('constant', 0.)
 TrainConfig.blendw_loss_weight_schedule = {
-  'type': 'linear',
+  'type': 'exp_increase',
   'initial_value': 0.00001,
-  'final_value': 0.01,
-  'num_steps': 100000 #%max_steps,
+  'final_value': 0.1,
+  'num_steps': 750000 #%max_steps,
 }
-TrainConfig.blendw_loss_skewness = 1.75
+TrainConfig.blendw_loss_skewness = 1.25
 TrainConfig.blendw_ray_loss_weight = 0.
 TrainConfig.blendw_ray_loss_threshold = .5
 TrainConfig.use_ex_ray_entropy_loss = False
-TrainConfig.blendw_area_loss_weight = 0.00025
+TrainConfig.blendw_area_loss_weight = 0.001
 TrainConfig.shadow_loss_threshold = 0.2
 TrainConfig.shadow_loss_weight = 0.
 TrainConfig.blendw_sample_loss_weight = 0.
@@ -51,20 +51,22 @@ TrainConfig.save_every = 10000
 
 
 # Evaluation options
+DecomposeNerfModel.blendw_mask_threshold = 0.5
 EvalConfig.subname = 'eval'
 EvalConfig.normalise_rendering = False
 
 EvalConfig.num_train_eval = -1
 EvalConfig.num_val_eval = -1
-EvalConfig.num_test_eval = 0
+EvalConfig.num_test_eval = -1
 EvalConfig.keep_gif_only = True
 
 EvalConfig.save_output = True
 EvalConfig.eval_once = True
 
-EvalConfig.fix_time_eval = True
+EvalConfig.fix_time_eval = False
 EvalConfig.num_fixed_time_views = -1
 EvalConfig.use_train_views = True
-EvalConfig.fix_view_eval = True
+EvalConfig.fix_view_eval = False
 EvalConfig.num_fixed_view_frames = -1
+EvalConfig.novel_view_eval = False
 

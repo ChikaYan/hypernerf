@@ -216,6 +216,7 @@ class DataSource(abc.ABC):
                use_warp_id=False,
                use_depth=False,
                use_mask=False,
+               mask_interest_region=False,
                use_relative_depth=False,
                use_time=False,
                random_seed=0,
@@ -233,6 +234,7 @@ class DataSource(abc.ABC):
     self.use_depth = use_depth
     self.use_time = use_time
     self.use_mask = use_mask
+    self.mask_interest_region = mask_interest_region
     self.use_relative_depth = use_relative_depth
     self.rng = np.random.RandomState(random_seed)
     self.preload = preload
