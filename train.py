@@ -244,7 +244,8 @@ def main(argv):
           or dummy_model.hyper_embed_key == 'appearance'),
       use_camera_id=dummy_model.nerf_embed_key == 'camera',
       use_time=dummy_model.warp_embed_key == 'time',
-      use_mask=train_config.use_mask_sep_train)
+      use_mask=train_config.use_mask_sep_train,
+      mask_interest_region=exp_config.mask_interest_region)
 
   # Create Model.
   logging.info('Initializing models.')
@@ -627,6 +628,10 @@ def process_iterator(tag: str,
         model_out=model_out,
         save_dir=save_dir,
         extra_render_tags=extra_render_tags)
+    # save all returned arrays for debugging purpose
+    dict_path = save_dir / 'model_out' 
+    dict_path.mkdir(exist_ok=True, parents=True)
+    np.save(str(dict_path / f"{item_id.replace('/', '_')}.npy"), model_out)
 
 
 def plot_images(tag: str,

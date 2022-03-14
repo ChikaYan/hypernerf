@@ -86,12 +86,26 @@ def compute_ssim(image1: jnp.ndarray, image2: jnp.ndarray, pad=0,
   return np.asarray(psnr)
 
 def compute_jaccard_index(mask_pred, mask_gt):
+  # deal with region of interest
+  mask_pred = mask_pred.reshape(-1)
+  mask_gt = mask_gt.reshape(-1)
+  mask_pred = mask_pred[mask_gt != -1]
+  mask_gt = mask_gt[mask_gt != -1]
+
   tp = np.sum(mask_pred * mask_gt)
   fp = np.sum(mask_pred * (1-mask_gt))
   fn = np.sum((1-mask_pred) * mask_gt)
   return tp / (tp + fn + fp)
 
 def compute_f1(mask_pred, mask_gt):
+  # Compute F measure 
+
+  # deal with region of interest
+  mask_pred = mask_pred.reshape(-1)
+  mask_gt = mask_gt.reshape(-1)
+  mask_pred = mask_pred[mask_gt != -1]
+  mask_gt = mask_gt[mask_gt != -1]
+
   tp = np.sum(mask_pred * mask_gt)
   fp = np.sum(mask_pred * (1-mask_gt))
   fn = np.sum((1-mask_pred) * mask_gt)
@@ -118,7 +132,8 @@ def compute_stats(batch, model_out):
         mse, psnr, ssim, ms_ssim)
 
   if 'mask' in batch and 'extra_rgb_blendw' in model_out:
-    mask_pred = np.where(model_out['extra_rgb_blendw'][...,0] > 0.1, 1, 0)
+    # mask_pred = np.where(model_out['extra_rgb_blendw'][...,0] > 0.1, 1, 0)
+    mask_pred = model_out['extra_rgb_mask'][..., 0]
     mask_gt = batch['mask'][...,0]
     jac = compute_jaccard_index(mask_pred, mask_gt)
     stats['jac_i'] = jac
@@ -264,7 +279,7 @@ def process_iterator(tag: str,
     extra_images = None
     if tag == 'test':
       batch['metadata'] = sample_random_metadata(datasource, batch, step)
-    elif tag == 'fix_time':
+    elif tag == 'fix_time' or tag == 'novel_view':
       batch['metadata'] = metas
     elif tag == 'fix_view':
       batch['metadata'] = metas[i]
@@ -302,8 +317,10 @@ def process_iterator(tag: str,
 
   if jax.process_index() == 0:
     for meter_name, meter in meters.items():
+      vs = np.array(meter._values)
+      vs = vs[np.logical_not(np.isnan(vs))]
       summary_writer.scalar(tag=f'metrics-eval/{meter_name}/{tag}',
-                            value=meter.reduce('mean'),
+                            value=np.average(vs), 
                             step=step)
 
     # render a video of rgb output
@@ -312,7 +329,8 @@ def process_iterator(tag: str,
       if extra_renders:
         render_tags += list(extra_renders)
       for render_tag in render_tags:
-        with imageio.get_writer(f'{save_dir}/{tag}/{render_tag}.gif', fps=5, mode='I') as writer:
+        n_img = len(list(glob.glob(f'{save_dir}/{tag}/{render_tag}_rgb_*.png')))
+        with imageio.get_writer(f'{save_dir}/{tag}/{render_tag}.gif', fps= n_img // 10, mode='I') as writer:
           for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/{render_tag}_rgb_*.png')):
             image = imageio.imread(rgb_path)
             writer.append_data(image)
@@ -325,12 +343,12 @@ def process_iterator(tag: str,
       detail_path.mkdir(parents=True, exist_ok=True)
       with metrics_path.open('w') as f:
         for meter_name, meter in meters.items():
-          f.write(f"{meter_name}: {meter.reduce('mean')}\n")
+          vs = np.array(meter._values)
+          vs = vs[np.logical_not(np.isnan(vs))]
+          f.write(f"{meter_name}: {np.average(vs)}\n")
 
           # write detailed version for every img
           np.savetxt(detail_path / f"{meter_name}.txt", np.array(meter._values))
-
-        
 
 
 def delete_old_renders(render_dir, max_renders):
@@ -428,7 +446,8 @@ def main(argv):
           dummy_model.nerf_embed_key == 'appearance'
           or dummy_model.hyper_embed_key == 'appearance'),
       use_camera_id=dummy_model.nerf_embed_key == 'camera',
-      use_time=dummy_model.warp_embed_key == 'time')
+      use_time=dummy_model.warp_embed_key == 'time',
+      mask_interest_region=exp_config.mask_interest_region)
 
     # Get training IDs to evaluate.
   train_eval_ids = utils.strided_subset(
@@ -446,17 +465,19 @@ def main(argv):
   else:
     val_eval_iter = None
 
-  if eval_config.num_test_eval > 0:
-    test_cameras = datasource.load_test_cameras(count=eval_config.num_test_eval)
-  else:
-    test_cameras = None
+  test_cameras = datasource.load_test_cameras(count=eval_config.num_test_eval)
   if test_cameras:
     test_dataset = datasource.create_cameras_dataset(test_cameras)
     test_eval_ids = [f'{x:03d}' for x in range(len(test_cameras))]
     test_eval_iter = datasets.iterator_from_dataset(test_dataset, batch_size=0)
+
+    # time_id = datasource.train_ids[eval_config.test_time_id]
+    time_id = datasource.train_ids[len(datasource.train_ids) // 2]
+    test_eval_meta = datasource.create_iterator([time_id], batch_size=0).__next__()['metadata']
   else:
     test_eval_ids = None
     test_eval_iter = None
+    test_eval_meta = None
 
   # fix time varying value evaluation
   if eval_config.fix_time_eval:
@@ -492,10 +513,8 @@ def main(argv):
         z = r * np.cos(phi)
 
         # new_cam = cam_base.look_at(position=np.array([x,y,z]),look_at=np.array([0,0,0]),up=np.array([0, 1, 0]))
-        new_cam = cam_base.look_at_kb(position=[x,y,z],target=[0,0,0])
+        new_cam = cam_base.look_at_kb(position=[x,y,z],look_at=[0,0,0], up=(0,1,0))
         fix_time_cams.append(new_cam)
-
-
 
     fix_time_dataset = datasource.create_cameras_dataset(fix_time_cams)
     fix_time_ids = [f'{x:03d}' for x in range(len(fix_time_cams))]
@@ -504,6 +523,39 @@ def main(argv):
     fix_time_ids = None
     fix_time_iter = None
     fix_time_meta = None
+
+  if eval_config.novel_view_eval:
+    # create dataset for fixed time multi-view validation
+    time_id = datasource.train_ids[len(datasource.train_ids) // 2]
+    novel_view_meta = datasource.create_iterator([time_id], batch_size=0).__next__()['metadata']
+    n_views = 50
+
+    # use generated camera poses
+    cam_base = datasource.load_camera(time_id)
+    X,Y,Z = cam_base.position
+    r = 0.01
+
+    novel_view_new_cams = []
+    for i in range(n_views):
+      theta = 2 * np.pi * i / n_views
+
+      # These values of (x, y, z) will lie on the same sphere as the original camera.
+      x = X + np.cos(theta) * r
+      y = Y + np.sin(theta) * r
+      z = Z
+
+      new_cam = cam_base.copy()
+      new_cam.position = np.array([x, y, z])
+      novel_view_new_cams.append(new_cam)
+
+
+    novel_view_dataset = datasource.create_cameras_dataset(novel_view_new_cams)
+    novel_view_ids = [f'{x:03d}' for x in range(len(novel_view_new_cams))]
+    novel_view_iter = datasets.iterator_from_dataset(novel_view_dataset, batch_size=0)
+  else:
+    novel_view_ids = None
+    novel_view_iter = None
+    novel_view_meta = None
 
   # fix view varying time evaluation
   if eval_config.fix_view_eval:
@@ -598,6 +650,18 @@ def main(argv):
       continue
 
     save_dir = renders_dir if eval_config.save_output else None
+    if train_eval_iter:
+      process_iterator(tag='train',
+                      item_ids=train_eval_ids,
+                      iterator=train_eval_iter,
+                      state=state,
+                      rng=rng,
+                      step=step,
+                      render_fn=render_fn,
+                      summary_writer=summary_writer,
+                      save_dir=save_dir,
+                      datasource=datasource,
+                      model=model)
     if val_eval_iter:
       process_iterator(
           tag='val',
@@ -611,18 +675,6 @@ def main(argv):
           save_dir=save_dir,
           datasource=datasource,
           model=model)
-    if train_eval_iter:
-      process_iterator(tag='train',
-                      item_ids=train_eval_ids,
-                      iterator=train_eval_iter,
-                      state=state,
-                      rng=rng,
-                      step=step,
-                      render_fn=render_fn,
-                      summary_writer=summary_writer,
-                      save_dir=save_dir,
-                      datasource=datasource,
-                      model=model)
 
     if test_eval_iter:
       process_iterator(tag='test',
@@ -635,7 +687,8 @@ def main(argv):
                        summary_writer=summary_writer,
                        save_dir=save_dir,
                        datasource=datasource,
-                       model=model)
+                       model=model,
+                       metas=test_eval_meta)
 
     if fix_time_iter:
       process_iterator(tag='fix_time',
@@ -650,6 +703,20 @@ def main(argv):
                        datasource=datasource,
                        model=model,
                        metas=fix_time_meta)
+
+    if novel_view_iter:
+      process_iterator(tag='novel_view',
+                       item_ids=novel_view_ids,
+                       iterator=novel_view_iter,
+                       state=state,
+                       rng=rng,
+                       step=step,
+                       render_fn=render_fn,
+                       summary_writer=summary_writer,
+                       save_dir=save_dir,
+                       datasource=datasource,
+                       model=model,
+                       metas=novel_view_meta)
 
     if fix_view_iter:
       process_iterator(tag='fix_view',

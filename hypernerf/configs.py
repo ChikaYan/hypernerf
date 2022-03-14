@@ -57,6 +57,10 @@ class ExperimentConfig:
   # The rendering mode. Supported types can be found in types.RENDER_MODE
   render_mode: str = 'regular'
 
+  # whether the loaded mask defines a region of interest
+  # region that is not of interest would have value 100
+  mask_interest_region: bool = False
+
 
 @gin.configurable()
 @dataclasses.dataclass
@@ -205,10 +209,14 @@ class EvalConfig:
   
   # Evalution setting for fixed time rotating camera experiments
   fix_time_eval: bool = False
-  # Number of views rendered for each fixed time frame
-  num_fixed_time_views: Optional[int] = 10
   # The time frame id used to render
   fixed_time_id: int = 0
+  # Number of views rendered for each fixed time frame
+  num_fixed_time_views: Optional[int] = 10
+  # Evalution setting for fixed time circulating camera experiments
+  novel_view_eval: bool = False
+  
+  # test_time_id: int = 0
 
   # Evalution setting for fixed view varying time experiments
   fix_view_eval: bool = False
