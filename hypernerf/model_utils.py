@@ -167,8 +167,7 @@ def volumetric_rendering_addition(rgb_d,
                                   dirs,
                                   use_white_background,
                                   sample_at_infinity=True,
-                                  eps=1e-10,
-                                  blendw_rendering=False):
+                                  eps=1e-10):
   """
   Volumetric Rendering Function with addition
   """
@@ -219,10 +218,10 @@ def volumetric_rendering_addition(rgb_d,
   weights_d = alpha_d * Ts
   weights_s = alpha_s * Ts
 
-  if not blendw_rendering:
-    rgb = (weights_d[..., None] * rgb_d + weights_s[..., None] * rgb_s).sum(axis=-2)
-  else:
-    rgb = (weights_d.sum(axis=-1) / (weights_d.sum(axis=-1) + weights_s.sum(axis=-1)))[..., None] * jnp.array([1,1,1])
+  # calculate blending ratio for each pixel
+  rgb_blendw = (weights_d.sum(axis=-1) / (weights_d.sum(axis=-1) + weights_s.sum(axis=-1)))[..., None] * jnp.array([1,1,1])
+
+  rgb = (weights_d[..., None] * rgb_d + weights_s[..., None] * rgb_s).sum(axis=-2)
 
   # TODO: verify depth and accuracy computation
   weights = (weights_d + weights_s)
@@ -239,15 +238,18 @@ def volumetric_rendering_addition(rgb_d,
 
   out = {
       'rgb': rgb,
+      'rgb_blendw': rgb_blendw,
       'depth': exp_depth,
       'med_depth': med_depth,
       'acc': acc,
       'weights': weights,
-      'weights_d': weights_d,
-      'weights_s' : weights_s,
-      'alpha_d': alpha_d,
-      'alpha_s' : alpha_s,
-      'alpha_both' : alpha_both,
+      'z_vals': z_vals,
+      'dirs': dirs,
+      # 'weights_d': weights_d,
+      # 'weights_s' : weights_s,
+      # 'alpha_d': alpha_d,
+      # 'alpha_s' : alpha_s,
+      # 'alpha_both' : alpha_both,
       'sigma_d': sigma_d,
       'sigma_s' : sigma_s,
       'dists': dists

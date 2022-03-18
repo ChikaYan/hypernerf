@@ -1201,6 +1201,11 @@ class DecomposeNerfModel(NerfModel):
   # Whether to deal with motion blur in the dynamic component or not
   handle_motion_blur: bool = False
 
+  # Whether to use spatial smoothness loss
+  # If true, would return an extra set of results that come from neighbouring points
+  use_spatial_loss: bool = False 
+  jitter_std: float = 0.01
+
 
   @property
   def num_nerf_embeds(self):
@@ -1988,6 +1993,37 @@ class DecomposeNerfModel(NerfModel):
       lambda: jnp.ones_like(blendw) * extra_params['freeze_blendw_value'], 
       lambda: blendw
       )
+
+    if self.use_spatial_loss:
+      # query addition results with jittered point locations
+      # only their density values will be kept for computing regularizing terms
+      _, sub_key = jax.random.split(self.make_rng(level))
+      jitter = jax.random.normal(sub_key, shape=points.shape) * self.jitter_std
+      jittered_points = points + jitter
+
+      warped_jpoints, _ = self.map_points(
+          jittered_points, warp_embed, hyper_embed, extra_params, use_warp=use_warp,
+          return_warp_jacobian=return_warp_jacobian,
+          # Override hyper points if present in metadata dict.
+          hyper_point_override=metadata.get('hyper_point'))
+
+      _, exs_sigma_d, exs_blendw, _ = self.query_template(
+          level,
+          warped_jpoints,
+          viewdirs,
+          metadata,
+          extra_params=extra_params,
+          metadata_encoded=metadata_encoded)
+
+      _, exs_sigma_s = self.static_nerf.query_template(
+          level,
+          jittered_points,
+          viewdirs,
+          metadata,
+          extra_params=extra_params,
+          metadata_encoded=metadata_encoded)
+      
+      out['exs_blendw'] = exs_sigma_d / jnp.clip(exs_sigma_d + exs_sigma_s, 1e-19)
     
 
     if self.handle_motion_blur:
@@ -2236,7 +2272,6 @@ class DecomposeNerfModel(NerfModel):
         ex_rgb_s, ex_sigma_s = rgb_s, sigma_s
         ex_blendw = blendw
         ex_shadow_r = shadow_r
-        blendw_rendering = False
         if render_mode == 'static':
           ex_rgb_d = jnp.zeros_like(ex_rgb_d)
           ex_sigma_d = jnp.zeros_like(ex_sigma_d)
@@ -2245,17 +2280,13 @@ class DecomposeNerfModel(NerfModel):
           ex_rgb_s = jnp.zeros_like(ex_rgb_s)
           ex_sigma_s = jnp.zeros_like(ex_sigma_s)
         elif render_mode == 'blendw':
-          ex_rgb_d = jnp.ones_like(ex_rgb_d) # * blendw[...,None]
-          ex_rgb_s = jnp.zeros_like(ex_rgb_d)
-          blendw_rendering = True
+          out[f'extra_rgb_{render_mode}'] =  out['rgb_blendw']
+          continue
         elif render_mode == 'mask':
           # render a thresholded blendw as mask
-          if 'extra_rgb_blendw' in out:
-            mask = jnp.where(out['extra_rgb_blendw'] > self.blendw_mask_threshold, 1., 0.)
-            out[f'extra_rgb_{render_mode}'] =  mask
-            continue
-          else:
-            raise NotImplementedError('mask must be rendered after blendw')
+          mask = jnp.where(out['rgb_blendw'] > self.blendw_mask_threshold, 1., 0.)
+          out[f'extra_rgb_{render_mode}'] =  mask
+          continue
         # elif render_mode == 'deformation_norm':
         #   # Not supported yet!
         #   rgb = jnp.clip((warped_points[...,:3] - points), 0, 1)
@@ -2320,8 +2351,7 @@ class DecomposeNerfModel(NerfModel):
           z_vals,
           directions,
           use_white_background=self.use_white_background,
-          sample_at_infinity=use_sample_at_infinity,
-          blendw_rendering=blendw_rendering)
+          sample_at_infinity=use_sample_at_infinity)
         out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
 
     else:
@@ -2334,10 +2364,10 @@ class DecomposeNerfModel(NerfModel):
         warped_points, depth_indices[..., None, None], axis=-2)
     out['med_points'] = med_points
 
-    out['density_d'] = sigma_d
+    out['sigma_d'] = sigma_d
     out['rgb_d'] = rgb_d
     out['rgb_s'] = rgb_s
-    out['blendw'] = blendw
+    out['blendw'] = blendw      
 
     return out
 

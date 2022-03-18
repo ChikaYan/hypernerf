@@ -3,8 +3,10 @@
 # sbatch command: 
 # sbatch --export=application='./train_eval_decompose_eval_add_blend.sh' ./slurm_script/run_slurm_ampere.sh
 
-DATA_PATH='./data/my_hand_large_motion/'
-LOG_PATH='log/my_hand_large_motion/shadow_model/init_ana/mid_shadow_loss_v2/'
+DATA_PATH='./data/davis/swing/'
+LOG_PATH='log/davis/swing/no_area_loss/'
+# DATA_PATH='./data/my_hand_large_motion/'
+# LOG_PATH='log/my_hand_large_motion/shadow_model/init_ana/mid_shadow_loss_v2/'
 
 echo "Log path is: $LOG_PATH"
 

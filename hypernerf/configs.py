@@ -107,10 +107,13 @@ class TrainConfig:
   # The weight for the background loss.
   background_loss_weight: float = 0.0
   bg_decompose_loss_weight: float = 0.0
-  # Fixed Adaptive blendw loss weight setting. Will only be used if blendw_loss_weight_schedule is None
-  # blendw_loss_weight: float = 0.0
   # Adaptive blendw loss weight setting
   blendw_loss_weight_schedule: Optional[ScheduleDef] = None
+  # Adaptive blendw loss weight setting
+  blendw_pixel_loss_weight_schedule: Optional[ScheduleDef] = immutabledict.immutabledict({
+      'type': 'constant',
+      'value': 0.0,
+  })
   blendw_loss_skewness: float = 1.0
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
@@ -121,6 +124,7 @@ class TrainConfig:
   blendw_sample_loss_weight: float = 0.0
   shadow_r_loss_weight: Optional[ScheduleDef] = None
   shadow_r_l2_loss_weight: float = 0.0
+  blendw_spatial_loss_weight: float = 0.0
   # The batch size for background regularization loss.
   background_points_batch_size: int = 16384
   # Whether to use the warp reg loss.

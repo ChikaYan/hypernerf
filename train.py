@@ -89,6 +89,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/background', stats.get('background_loss'))
   _log_scalar('loss/bg_decompose', stats.get('bg_decompose_loss'))
   _log_scalar('loss/blendw_loss', stats.get('blendw_loss'))
+  _log_scalar('loss/blendw_pixel_loss', stats.get('blendw_pixel_loss'))
   _log_scalar('loss/coase_blendw_mean', stats.get('coarse_blendw'))
   _log_scalar('loss/fine_blendw_mean', stats.get('fine_blendw'))
   _log_scalar('loss/force_blendw_loss', stats.get('force_blendw_loss'))
@@ -98,6 +99,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/blendw_sample_loss', stats.get('blendw_sample_loss'))
   _log_scalar('loss/shadow_r_loss', stats.get('shadow_r_loss'))
   _log_scalar('loss/shadow_r_l2_loss', stats.get('shadow_r_l2_loss'))
+  _log_scalar('loss/blendw_spatial_loss', stats.get('blendw_spatial_loss'))
   _log_scalar('loss/ex_blendw_ray_loss', stats.get('ex_blendw_ray_loss'))
   _log_scalar('loss/ex_density_ray_loss', stats.get('ex_density_ray_loss'))
 
@@ -295,6 +297,7 @@ def main(argv):
   elastic_loss_weight_sched = schedules.from_config(
       train_config.elastic_loss_weight_schedule)
   blendw_loss_weight_sched = schedules.from_config(train_config.blendw_loss_weight_schedule)
+  blendw_pixel_loss_weight_sched = schedules.from_config(train_config.blendw_pixel_loss_weight_schedule)
   shadow_r_loss_weight_sched = schedules.from_config(train_config.shadow_r_loss_weight)
 
 
@@ -346,6 +349,7 @@ def main(argv):
       background_loss_weight=train_config.background_loss_weight,
       bg_decompose_loss_weight=train_config.bg_decompose_loss_weight,
       blendw_loss_weight=blendw_loss_weight_sched(0),
+      blendw_pixel_loss_weight=blendw_pixel_loss_weight_sched(0),
       blendw_loss_skewness=train_config.blendw_loss_skewness,
       force_blendw_loss_weight=train_config.force_blendw_loss_weight,
       blendw_ray_loss_weight=train_config.blendw_ray_loss_weight,
@@ -356,6 +360,7 @@ def main(argv):
       blendw_sample_loss_weight=train_config.blendw_sample_loss_weight,
       shadow_r_loss_weight=shadow_r_loss_weight_sched(0),
       shadow_r_l2_loss_weight=train_config.shadow_r_l2_loss_weight,
+      blendw_spatial_loss_weight=train_config.blendw_spatial_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
   new_state = state
   state = checkpoints.restore_checkpoint(checkpoint_dir, state)
@@ -442,6 +447,7 @@ def main(argv):
         learning_rate=learning_rate_sched(step),
         elastic_loss_weight=elastic_loss_weight_sched(step),
         blendw_loss_weight=blendw_loss_weight_sched(step),
+        blendw_pixel_loss_weight=blendw_pixel_loss_weight_sched(step),
         shadow_r_loss_weight=shadow_r_loss_weight_sched(step),
         )
     # pytype: enable=attribute-error
@@ -599,7 +605,8 @@ def main(argv):
               render_fn=render_fn,
               save_dir=save_dir,
               model=model,
-              extra_render_tags=extra_render_tags)
+              extra_render_tags=extra_render_tags,
+              save_out=step==train_config.max_steps)
 
   if train_config.max_steps % train_config.save_every != 0:
     training.save_checkpoint(checkpoint_dir, state, keep=2)
@@ -614,7 +621,8 @@ def process_iterator(tag: str,
                      render_fn: Any,
                      save_dir: gpath.GPath,
                      model: models.NerfModel,
-                     extra_render_tags: Optional[tuple]):
+                     extra_render_tags: Optional[tuple],
+                     save_out: bool = False):
   """Process a dataset iterator and compute metrics."""
   params = state.optimizer.target['model']
   save_dir = save_dir / f'{step:08d}' / tag
@@ -628,10 +636,19 @@ def process_iterator(tag: str,
         model_out=model_out,
         save_dir=save_dir,
         extra_render_tags=extra_render_tags)
-    # save all returned arrays for debugging purpose
-    dict_path = save_dir / 'model_out' 
-    dict_path.mkdir(exist_ok=True, parents=True)
-    np.save(str(dict_path / f"{item_id.replace('/', '_')}.npy"), model_out)
+
+    if save_out:
+      # save all returned arrays for debugging purpose
+      dict_path = save_dir / 'model_out' 
+      dict_path.mkdir(exist_ok=True, parents=True)
+      del model_out['rgb_d']
+      del model_out['rgb_s']
+      if isinstance(model,models.DecomposeNerfModel) and not model.use_shadow_model:
+        del model_out['shadow_r']
+      for k in model_out.keys():
+        model_out[k] = model_out[k].astype(np.half)
+
+      np.save(str(dict_path / f"{item_id.replace('/', '_')}.npy"), model_out)
 
 
 def plot_images(tag: str,

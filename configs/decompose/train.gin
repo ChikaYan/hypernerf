@@ -43,6 +43,7 @@ TrainConfig.blendw_loss_weight_schedule = {
   'num_steps': 200000,
 }
 TrainConfig.blendw_loss_skewness = 1.25
+TrainConfig.blendw_pixel_loss_weight_schedule = ('constant', 0.0)
 TrainConfig.blendw_ray_loss_weight = 0.001
 TrainConfig.blendw_ray_loss_threshold = .5
 TrainConfig.use_ex_ray_entropy_loss = True

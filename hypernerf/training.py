@@ -47,6 +47,7 @@ class ScalarParams:
   background_loss_weight: float = 0.0
   bg_decompose_loss_weight: float = 0.0
   blendw_loss_weight: float = 0.0
+  blendw_pixel_loss_weight: float = 0.0
   blendw_loss_skewness: float = 1.0
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
@@ -57,6 +58,7 @@ class ScalarParams:
   blendw_sample_loss_weight: float = 0.0
   shadow_r_loss_weight: float = 0.0
   shadow_r_l2_loss_weight: float = 0.0
+  blendw_spatial_loss_weight: float = 0.0
   background_noise_std: float = 0.001
   hyper_reg_loss_weight: float = 0.0
 
@@ -270,6 +272,24 @@ def compute_blendw_ray_loss(rets, mask_thresold=1., clip_threshold=1e-19, handle
 
   return loss / 2.
 
+@functools.partial(jax.jit)
+def compute_blendw_pixel_loss(rets, clip_threshold=1e-19, skewness=1.0):
+  """
+  Compute an entropy loss on pixel level: i.e., entropy on the pixel blending ratio between dynamic and static component
+  """
+  loss = 0.
+
+  for label in ['coarse', 'fine']:
+    blendw_pixel = rets[label]['rgb_blendw'] ** skewness
+
+    blendw_pixel = jnp.clip(blendw_pixel, a_min=clip_threshold, a_max=1-clip_threshold)
+    rev_blendw_pixel = jnp.clip(1-blendw_pixel, a_min=clip_threshold) # a_max behaving weird with small clip threshold
+    entropy = - (blendw_pixel * jnp.log(blendw_pixel) + rev_blendw_pixel*jnp.log(rev_blendw_pixel))
+
+    loss += entropy.mean()
+
+  return loss / 2.
+
 
 @functools.partial(jax.jit)
 def compute_blendw_area_loss(coarse_blendw, fine_blendw):
@@ -285,11 +305,27 @@ def compute_blendw_area_loss(coarse_blendw, fine_blendw):
   return loss / 2.
 
 @functools.partial(jax.jit)
+def compute_blendw_spatial_loss(rets):
+  """
+  Encourage the blendw to be smooth spatially
+  """
+  loss = 0.
+
+  for label in ['coarse', 'fine']:
+    diff = (rets[label]['blendw'] - rets[label]['exs_blendw'])**2
+    loss += diff.mean()
+
+  return loss / 2.
+
+@functools.partial(jax.jit)
 def compute_shadow_loss(rets, threshold=0.2):
   """
   If a location exists blending from both components, then enforce dynamic component to predict lower radiance
   This is to encourage it to correctly learn the shadow
   """
+  # DEPRECATED
+  return 0.
+
   loss = 0.
 
   for label in ['coarse', 'fine']:
@@ -603,6 +639,12 @@ def train_step(model: models.NerfModel,
         scalar_params.blendw_loss_weight * blendw_loss)
       stats['blendw_loss'] = blendw_loss
 
+      blendw_pixel_loss = compute_blendw_pixel_loss(ret, skewness=scalar_params.blendw_loss_skewness)
+      blendw_pixel_loss = blendw_pixel_loss.mean()
+      losses['blendw_pixel_loss'] = (
+        scalar_params.blendw_pixel_loss_weight * blendw_pixel_loss)
+      stats['blendw_pixel_loss'] = blendw_pixel_loss
+
       force_blendw_loss = jax.lax.cond(
         state.extra_params['force_blendw'], 
         compute_force_blendw_loss, 
@@ -649,9 +691,12 @@ def train_step(model: models.NerfModel,
           scalar_params.shadow_r_l2_loss_weight * shadow_r_l2_loss)
         stats['shadow_r_l2_loss'] = shadow_r_l2_loss
 
-      # log blendws
-      stats['coarse_blendw'] = ret['coarse']['blendw'].mean()
-      stats['fine_blendw'] = ret['fine']['blendw'].mean()
+      if model.use_spatial_loss:
+        # apply shadow model related loss
+        blendw_spatial_loss = compute_blendw_spatial_loss(ret)
+        losses['blendw_spatial_loss'] = (
+          scalar_params.blendw_spatial_loss_weight * blendw_spatial_loss)
+        stats['blendw_spatial_loss'] = blendw_spatial_loss
 
       if use_ex_ray_entropy_loss:
         # calculate ray entropy regularization at a different time stamp
@@ -679,6 +724,10 @@ def train_step(model: models.NerfModel,
             scalar_params.blendw_ray_loss_weight * ex_density_ray_loss)
         stats['ex_density_ray_loss'] = ex_density_ray_loss
 
+
+      # log blendws
+      stats['coarse_blendw'] = ret['coarse']['blendw'].mean()
+      stats['fine_blendw'] = ret['fine']['blendw'].mean()
     return sum(losses.values()), (stats, ret)
 
   optimizer = state.optimizer

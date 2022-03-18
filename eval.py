@@ -186,41 +186,41 @@ def plot_images(*,
     # image_utils.save_depth(save_dir / f'depth_median_{item_id}.png',
     #                        depth_med)
 
-  summary_writer.image(f'rgb/{tag}/{item_id}', rgb, step)
-  summary_writer.image(f'depth-expected/{tag}/{item_id}', depth_exp_viz, step)
-  summary_writer.image(f'depth-median/{tag}/{item_id}', depth_med_viz, step)
-  summary_writer.image(f'disparity-expected/{tag}/{item_id}', disp_exp_viz,
-                       step)
-  summary_writer.image(f'disparity-median/{tag}/{item_id}', disp_med_viz, step)
-  summary_writer.image(f'acc/{tag}/{item_id}', acc_viz, step)
+  # summary_writer.image(f'rgb/{tag}/{item_id}', rgb, step)
+  # summary_writer.image(f'depth-expected/{tag}/{item_id}', depth_exp_viz, step)
+  # summary_writer.image(f'depth-median/{tag}/{item_id}', depth_med_viz, step)
+  # summary_writer.image(f'disparity-expected/{tag}/{item_id}', disp_exp_viz,
+  #                      step)
+  # summary_writer.image(f'disparity-median/{tag}/{item_id}', disp_med_viz, step)
+  # summary_writer.image(f'acc/{tag}/{item_id}', acc_viz, step)
 
-  if 'rgb' in batch:
-    rgb_target = batch['rgb'][..., :3]
-    rgb_abs_error = viz.colorize(
-        abs(rgb_target - rgb).sum(axis=-1), cmin=0, cmax=1)
-    rgb_sq_error = viz.colorize(
-        ((rgb_target - rgb)**2).sum(axis=-1), cmin=0, cmax=1)
-    summary_writer.image(f'rgb-target/{tag}/{item_id}', rgb_target, step)
-    summary_writer.image(f'rgb-abs-error/{tag}/{item_id}', rgb_abs_error, step)
-    summary_writer.image(f'rgb-sq-error/{tag}/{item_id}', rgb_sq_error, step)
+  # if 'rgb' in batch:
+  #   rgb_target = batch['rgb'][..., :3]
+  #   rgb_abs_error = viz.colorize(
+  #       abs(rgb_target - rgb).sum(axis=-1), cmin=0, cmax=1)
+  #   rgb_sq_error = viz.colorize(
+  #       ((rgb_target - rgb)**2).sum(axis=-1), cmin=0, cmax=1)
+  #   summary_writer.image(f'rgb-target/{tag}/{item_id}', rgb_target, step)
+  #   summary_writer.image(f'rgb-abs-error/{tag}/{item_id}', rgb_abs_error, step)
+  #   summary_writer.image(f'rgb-sq-error/{tag}/{item_id}', rgb_sq_error, step)
 
-  if 'depth' in batch:
-    depth_target = batch['depth']
-    depth_target_viz = colorize_depth(depth_target[..., 0])
-    summary_writer.image(
-        f'depth-target/{tag}/{item_id}', depth_target_viz, step)
-    depth_med_error = viz.colorize(
-        abs(depth_target - depth_med).squeeze(axis=-1), cmin=0, cmax=1)
-    summary_writer.image(
-        f'depth-median-error/{tag}/{item_id}', depth_med_error, step)
-    depth_exp_error = viz.colorize(
-        abs(depth_target - depth_exp).squeeze(axis=-1), cmin=0, cmax=1)
-    summary_writer.image(
-        f'depth-expected-error/{tag}/{item_id}', depth_exp_error, step)
+  # if 'depth' in batch:
+  #   depth_target = batch['depth']
+  #   depth_target_viz = colorize_depth(depth_target[..., 0])
+  #   summary_writer.image(
+  #       f'depth-target/{tag}/{item_id}', depth_target_viz, step)
+  #   depth_med_error = viz.colorize(
+  #       abs(depth_target - depth_med).squeeze(axis=-1), cmin=0, cmax=1)
+  #   summary_writer.image(
+  #       f'depth-median-error/{tag}/{item_id}', depth_med_error, step)
+  #   depth_exp_error = viz.colorize(
+  #       abs(depth_target - depth_exp).squeeze(axis=-1), cmin=0, cmax=1)
+  #   summary_writer.image(
+  #       f'depth-expected-error/{tag}/{item_id}', depth_exp_error, step)
 
-  if extra_images:
-    for k, v in extra_images.items():
-      summary_writer.image(f'{k}/{tag}/{item_id}', v, step)
+  # if extra_images:
+  #   for k, v in extra_images.items():
+  #     summary_writer.image(f'{k}/{tag}/{item_id}', v, step)
 
   if extra_render_tags is not None:
     for extra_tag in extra_render_tags:

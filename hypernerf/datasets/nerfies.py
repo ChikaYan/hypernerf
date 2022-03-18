@@ -182,8 +182,17 @@ class NerfiesDataSource(core.DataSource):
       return []
     camera_paths = sorted(camera_dir.glob(f'*{self.camera_ext}'))
     if count is not None:
-      stride = max(1, len(camera_paths) // count)
-      camera_paths = camera_paths[::stride]
+      # stride = max(1, len(camera_paths) // count)
+      # camera_paths = camera_paths[::stride]
+
+      if count < 0 or count >= len(camera_paths):
+        count = len(camera_paths)
+      if count == 0:
+        return []
+
+      ids = np.linspace(0, len(camera_paths) -1, count).astype(int)
+      camera_paths = [camera_paths[i] for i in ids]
+
     cameras = utils.parallel_map(self.load_camera, camera_paths)
     return cameras
 

@@ -65,7 +65,7 @@
             "args": [
                 "--base_folder",
                 "log/debug/decompose",
-                "--gin_bindings=\"data_dir='./data/my_hand_large_motion/'\"",
+                "--gin_bindings=\"data_dir='./data/kubric_single_car/'\"",
                 "--gin_configs",
                 "configs/decompose/train_debug.gin",
                 "--debug"
