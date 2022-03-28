@@ -1463,6 +1463,9 @@ class DecomposeNerfModel(NerfModel):
         shadow_r = nn.sigmoid(jnp.squeeze(shadow_r - self.shadow_r_shift, axis=-1))
       else:
         shadow_r = nn.sigmoid(jnp.squeeze(raw['shadow_r'] - self.shadow_r_shift, axis=-1))
+      
+      # # shadow_r disabled!
+      # shadow_r = jnp.zeros_like(shadow_r)
 
     return rgb, sigma, blendw, shadow_r
 

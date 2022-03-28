@@ -219,7 +219,7 @@ def volumetric_rendering_addition(rgb_d,
   weights_s = alpha_s * Ts
 
   # calculate blending ratio for each pixel
-  rgb_blendw = (weights_d.sum(axis=-1) / (weights_d.sum(axis=-1) + weights_s.sum(axis=-1)))[..., None] * jnp.array([1,1,1])
+  rgb_blendw = (weights_d.sum(axis=-1) / jnp.clip(weights_d.sum(axis=-1) + weights_s.sum(axis=-1), 1e-19))[..., None] * jnp.array([1,1,1])
 
   rgb = (weights_d[..., None] * rgb_d + weights_s[..., None] * rgb_s).sum(axis=-2)
 

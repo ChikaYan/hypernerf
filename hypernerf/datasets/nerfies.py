@@ -45,7 +45,7 @@ def load_scene_info(
     near: the near plane of the scene (scaled coordinates).
     far: the far plane of the scene (scaled coordinates).
   """
-  scene_json_path = gpath.GPath(data_dir, 'scene.json')
+  scene_json_path = gpath.GPath(data_dir, 'scene_gt.json') if gt else gpath.GPath(data_dir, 'scene.json')
   with scene_json_path.open('r') as f:
     scene_json = json.load(f)
 
@@ -111,6 +111,7 @@ class NerfiesDataSource(core.DataSource):
     if camera_type not in ['json']:
       raise ValueError('The camera type needs to be json.')
     self.camera_type = camera_type
+    self.use_gt_camera = use_gt_camera
     self.camera_dir = gpath.GPath(data_dir, 'camera')
     if use_gt_camera:
       self.camera_dir = gpath.GPath(data_dir, 'camera-gt')
@@ -177,6 +178,8 @@ class NerfiesDataSource(core.DataSource):
 
   def load_test_cameras(self, count=None):
     camera_dir = (self.data_dir / 'camera-paths' / self.test_camera_trajectory)
+    if self.use_gt_camera:
+      camera_dir = (self.data_dir / 'camera-paths-gt' / self.test_camera_trajectory)
     if not camera_dir.exists():
       logging.warning('test camera path does not exist: %s', str(camera_dir))
       return []

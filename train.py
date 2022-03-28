@@ -57,6 +57,7 @@ flags.mark_flag_as_required('base_folder')
 flags.DEFINE_multi_string('gin_bindings', None, 'Gin parameter bindings.')
 flags.DEFINE_multi_string('gin_configs', (), 'Gin config files.')
 flags.DEFINE_boolean('debug', False, 'Produces debugging output.')
+flags.DEFINE_boolean('remote_debug', False, 'Debugging with remote HPC service (not using debugger)')
 FLAGS = flags.FLAGS
 
 
@@ -94,6 +95,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/fine_blendw_mean', stats.get('fine_blendw'))
   _log_scalar('loss/force_blendw_loss', stats.get('force_blendw_loss'))
   _log_scalar('loss/blendw_ray_loss', stats.get('blendw_ray_loss'))
+  _log_scalar('loss/sigma_s_ray_loss', stats.get('sigma_s_ray_loss'))
   _log_scalar('loss/blendw_area_loss', stats.get('blendw_area_loss'))
   _log_scalar('loss/shadow_loss', stats.get('shadow_loss'))
   _log_scalar('loss/blendw_sample_loss', stats.get('blendw_sample_loss'))
@@ -166,6 +168,10 @@ def main(argv):
     print('Debug mode on! Jitting is disabled')
     jax_config.update('jax_disable_jit', True)
     jax_config.update("jax_debug_nans", True)
+  if FLAGS.remote_debug:
+    print('Remote debug mode on! Jitting is enabled but will check for nan and produce additional log')
+    jax_config.update("jax_debug_nans", True)
+
 
   # add simple fix for VS debugger:
   if FLAGS.debug and FLAGS.gin_bindings[0][0]=='"':
@@ -351,8 +357,10 @@ def main(argv):
       blendw_loss_weight=blendw_loss_weight_sched(0),
       blendw_pixel_loss_weight=blendw_pixel_loss_weight_sched(0),
       blendw_loss_skewness=train_config.blendw_loss_skewness,
+      blendw_pixel_loss_skewness=train_config.blendw_pixel_loss_skewness,
       force_blendw_loss_weight=train_config.force_blendw_loss_weight,
       blendw_ray_loss_weight=train_config.blendw_ray_loss_weight,
+      sigma_s_ray_loss_weight=train_config.sigma_s_ray_loss_weight,
       blendw_ray_loss_threshold=train_config.blendw_ray_loss_threshold,
       blendw_area_loss_weight=train_config.blendw_area_loss_weight,
       shadow_loss_threshold=train_config.shadow_loss_threshold,
@@ -532,6 +540,24 @@ def main(argv):
       logging.info('\tcoarse metrics: %s', coarse_metrics_str)
       if 'fine' in stats:
         logging.info('\tfine metrics: %s', fine_metrics_str)
+
+      if FLAGS.debug:
+        logging.info('loss/background: %s', stats.get('background_loss'))
+        logging.info('loss/bg_decompose: %s', stats.get('bg_decompose_loss'))
+        logging.info('loss/blendw_loss: %s', stats.get('blendw_loss'))
+        logging.info('loss/blendw_pixel_loss: %s', stats.get('blendw_pixel_loss'))
+        logging.info('loss/coase_blendw_mean: %s', stats.get('coarse_blendw'))
+        logging.info('loss/fine_blendw_mean: %s', stats.get('fine_blendw'))
+        logging.info('loss/force_blendw_loss: %s', stats.get('force_blendw_loss'))
+        logging.info('loss/blendw_ray_loss: %s', stats.get('blendw_ray_loss'))
+        logging.info('loss/blendw_area_loss: %s', stats.get('blendw_area_loss'))
+        logging.info('loss/shadow_loss: %s', stats.get('shadow_loss'))
+        logging.info('loss/blendw_sample_loss: %s', stats.get('blendw_sample_loss'))
+        logging.info('loss/shadow_r_loss: %s', stats.get('shadow_r_loss'))
+        logging.info('loss/shadow_r_l2_loss: %s', stats.get('shadow_r_l2_loss'))
+        logging.info('loss/blendw_spatial_loss: %s', stats.get('blendw_spatial_loss'))
+        logging.info('loss/ex_blendw_ray_loss: %s', stats.get('ex_blendw_ray_loss'))
+        logging.info('loss/ex_density_ray_loss: %s', stats.get('ex_density_ray_loss'))
 
     if step % train_config.save_every == 0 and jax.process_index() == 0:
       training.save_checkpoint(checkpoint_dir, state, keep=2)

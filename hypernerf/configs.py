@@ -115,8 +115,10 @@ class TrainConfig:
       'value': 0.0,
   })
   blendw_loss_skewness: float = 1.0
+  blendw_pixel_loss_skewness: float = 1.0
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
+  sigma_s_ray_loss_weight: float = 0.0
   blendw_area_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0
   shadow_loss_threshold: float = 0.2

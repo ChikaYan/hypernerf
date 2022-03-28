@@ -49,8 +49,10 @@ class ScalarParams:
   blendw_loss_weight: float = 0.0
   blendw_pixel_loss_weight: float = 0.0
   blendw_loss_skewness: float = 1.0
+  blendw_pixel_loss_skewness: float = 1.0
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
+  sigma_s_ray_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0
   blendw_area_loss_weight: float = 0.0
   shadow_loss_threshold: float = 0.2
@@ -272,6 +274,30 @@ def compute_blendw_ray_loss(rets, mask_thresold=1., clip_threshold=1e-19, handle
 
   return loss / 2.
 
+
+@functools.partial(jax.jit)
+def compute_sigma_s_ray_loss(rets, mask_thresold=0.1, clip_threshold=1e-19):
+  """
+  Compute loss that encourage sigma_s to stay concentrated on a ray
+  """
+  loss = 0.
+
+  for label in ['coarse', 'fine']:
+    sigma_s = rets[label]['sigma_s']
+    sigma_s_sum = jnp.sum(sigma_s, -1, keepdims=True) 
+    mask = jnp.where(sigma_s_sum < mask_thresold, 0., 1.) 
+
+    dists = rets[label]['dists']
+    alpha = 1. - jnp.exp(- sigma_s * dists)
+    # prevent nan
+    alpha = jnp.clip(alpha, a_min=clip_threshold)
+    p = alpha / jnp.sum(alpha, -1, keepdims=True) 
+    
+    entropy = mask * -jnp.mean(p * jnp.log(p), -1, keepdims=True) # change from sum to mean to make scale of number more comparable
+    loss += entropy.mean()
+
+  return loss / 2.
+
 @functools.partial(jax.jit)
 def compute_blendw_pixel_loss(rets, clip_threshold=1e-19, skewness=1.0):
   """
@@ -280,7 +306,8 @@ def compute_blendw_pixel_loss(rets, clip_threshold=1e-19, skewness=1.0):
   loss = 0.
 
   for label in ['coarse', 'fine']:
-    blendw_pixel = rets[label]['rgb_blendw'] ** skewness
+    # clipping needed because a skewness of less than 1.0 might be used
+    blendw_pixel = jnp.clip(rets[label]['rgb_blendw'], a_min=clip_threshold) ** skewness
 
     blendw_pixel = jnp.clip(blendw_pixel, a_min=clip_threshold, a_max=1-clip_threshold)
     rev_blendw_pixel = jnp.clip(1-blendw_pixel, a_min=clip_threshold) # a_max behaving weird with small clip threshold
@@ -639,7 +666,7 @@ def train_step(model: models.NerfModel,
         scalar_params.blendw_loss_weight * blendw_loss)
       stats['blendw_loss'] = blendw_loss
 
-      blendw_pixel_loss = compute_blendw_pixel_loss(ret, skewness=scalar_params.blendw_loss_skewness)
+      blendw_pixel_loss = compute_blendw_pixel_loss(ret, skewness=scalar_params.blendw_pixel_loss_skewness)
       blendw_pixel_loss = blendw_pixel_loss.mean()
       losses['blendw_pixel_loss'] = (
         scalar_params.blendw_pixel_loss_weight * blendw_pixel_loss)
@@ -663,6 +690,11 @@ def train_step(model: models.NerfModel,
       losses['blendw_ray_loss'] = (
         scalar_params.blendw_ray_loss_weight * blendw_ray_loss)
       stats['blendw_ray_loss'] = blendw_ray_loss
+
+      sigma_s_ray_loss = compute_sigma_s_ray_loss(ret)   
+      losses['sigma_s_ray_loss'] = (
+        scalar_params.sigma_s_ray_loss_weight * sigma_s_ray_loss)
+      stats['sigma_s_ray_loss'] = sigma_s_ray_loss
 
       blendw_area_loss = compute_blendw_area_loss(ret['coarse']['blendw'], ret['fine']['blendw'])   
       losses['blendw_area_loss'] = (
