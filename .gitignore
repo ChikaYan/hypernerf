@@ -81,3 +81,5 @@ slurm-*.out
 slurm_script/
 
 log_test/
+
+configs/decompose/tune/

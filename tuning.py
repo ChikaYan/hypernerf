@@ -1,73 +1,97 @@
 import itertools
 from pathlib import Path
+import json
+from copy import deepcopy
 
-SOURCE_CONFIG = './configs/decompose/train_kubric_template.gin'
-ROOT_DIR = Path('./configs/decompose/tune/varying_blendw_loss_w_s5/')
+ROOT_PATH = './configs/decompose/tune/sigma_s_ray_loss_no_far/'
+root_dir = Path(ROOT_PATH)
+root_dir.mkdir(parents=True, exist_ok=True)
 
-ROOT_DIR.mkdir(parents=True, exist_ok=True)
-params = []
-values = []
+LOAD_CONF = True
 
-# quick experiment or full run
-QUICK = False
+if LOAD_CONF:
+  with (root_dir / 'config.json').open('r') as f:
+    tune_conf = json.load(f)
+  params = tune_conf['params']
+else:
+  tune_conf = {}
+  tune_conf['source_conf'] = './configs/decompose/train_kubric_template.gin'
 
-params.append("TrainConfig.blendw_loss_weight_schedule = {{ \n \
-  'type': 'exp_increase', \n \
-  'initial_value': {}, \n \
-  'final_value': 0.1, \n \
-  'num_steps': 75000, \n \
-}}")
-values.append([0.00001, 0.0001, 0.001, 0.01, 0.1, 0.005])
+  params = []
 
-# params.append("TrainConfig.shadow_r_loss_weight = {{ \n \
-#   'type': 'linear', \n \
-#   'initial_value': {}, \n \
-#   'final_value': {}, \n \
-#   'num_steps': 100000, \n \
-# }}")
-# values.append([[0.05, 0.1], [0.05, 0.01]])
+  # quick experiment or full run
+  tune_conf['quick_exp'] = False
 
-params.append("TrainConfig.blendw_loss_skewness = {}\n")
-values.append([5.0])
-# values.append([0.5, 1.0, 1.5, 2.0, 5.0, 10.0, 1.25, 1.24])
+  # params.append({'text': "TrainConfig.blendw_loss_weight_schedule = {{\n\
+  # 'type': 'exp_increase',\n\
+  # 'initial_value': {},\n\
+  # 'final_value': 0.1,\n\
+  # 'num_steps': 75000,\n\
+  # }}",
+  #               'values': [0.00001, 0.0001, 0.001, 0.01, 0.1, 0.005]
+  # })
 
-params.append("max_steps = {}\n")
-values.append([20000 if QUICK else 100000])
+  # params.append("TrainConfig.shadow_r_loss_weight = {{ \n \
+  #   'type': 'linear', \n \
+  #   'initial_value': {}, \n \
+  #   'final_value': {}, \n \
+  #   'num_steps': 100000, \n \
+  # }}")
+  # values.append([[0.05, 0.1], [0.05, 0.01]])
 
-params.append("EvalConfig.niter_runtime_eval = {}\n")
-values.append([2000 if QUICK else 25000])
+  params.append({'text': "TrainConfig.blendw_loss_skewness = {}\n",
+                'values': [0.5, 1.0, 1.5, 2.0, 5.0, 10.0] # [2.0]
+                })
 
-params.append("TrainConfig.blendw_area_loss_weight = {}\n")
-# values.append([0.0001])
-values.append([0.0])
 
-params.append("EvalConfig.num_train_eval = {}\n")
-values.append([50])
+  params.append({'text': "TrainConfig.blendw_area_loss_weight = {}\n",
+                'values': [0.0001] # [0.0]
+  })
+  # values.append([0.0001])
 
-params.append("EvalConfig.num_test_eval = {}\n")
-values.append([0])
 
+  params.append({'text': "EvalConfig.num_train_eval = {}\n",
+                'values': [50]
+  })
+
+  params.append({'text': "EvalConfig.num_test_eval = {}\n",
+                'values': [0]
+  })
+
+
+  tune_conf['params'] = deepcopy(params)
+  with (root_dir / 'config.json').open('w') as f:
+    json.dump(tune_conf, f, indent=2)
+
+
+params.append({'text': "max_steps = {}\n",
+               'values': [20000 if tune_conf['quick_exp'] else 100000]
+})
+
+params.append({'text': "EvalConfig.niter_runtime_eval = {}\n",
+               'values': [2000 if tune_conf['quick_exp'] else 25000]
+})
 
 ids = []
-for i in range(len(values)):
-  ids.append(list(range(len(values[i]))))
+for i in range(len(params)):
+  ids.append(list(range(len(params[i]['values']))))
 
 choices = list(itertools.product(*ids))
 
 configs = []
 for choice in choices:
   config = ""
-  config += f"include '{SOURCE_CONFIG}'\n\n"
+  config += f"include '{tune_conf['source_conf']}'\n\n"
   for i in range(len(params)):
-    v = values[i][choice[i]]
+    v = params[i]['values'][choice[i]]
     if isinstance(v, list):
-      config += params[i].format(*v) + "\n"
+      config += params[i]['text'].format(*v) + "\n"
     else:
-      config += params[i].format(v) + "\n"
+      config += params[i]['text'].format(v) + "\n"
   configs.append(config)
 
 for i in range(len(configs)):
-  filepath = ROOT_DIR / f"{i:03d}.gin"
+  filepath = root_dir / f"{i:03d}.gin"
   with filepath.open("w") as f:
       f.write(configs[i])
 
