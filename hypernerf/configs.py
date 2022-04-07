@@ -119,12 +119,20 @@ class TrainConfig:
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
   sigma_s_ray_loss_weight: float = 0.0
+  sigma_d_ray_loss_weight: float = 0.0
   blendw_area_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0
   shadow_loss_threshold: float = 0.2
   shadow_loss_weight: float = 0.0
   blendw_sample_loss_weight: float = 0.0
-  shadow_r_loss_weight: Optional[ScheduleDef] = None
+  shadow_r_loss_weight: Optional[ScheduleDef] = immutabledict.immutabledict({
+      'type': 'constant',
+      'value': 0.0,
+  })
+  cubic_shadow_r_loss_weight_schedule: Optional[ScheduleDef] = immutabledict.immutabledict({
+      'type': 'constant',
+      'value': 0.0,
+  })
   shadow_r_l2_loss_weight: float = 0.0
   blendw_spatial_loss_weight: float = 0.0
   # The batch size for background regularization loss.
@@ -245,3 +253,5 @@ class EvalConfig:
   # Specific number of frames that need to be rendered for runtime eval
   # Those will be rendered in additional to the targets chosen from nimg_runtime_eval
   ex_runtime_eval_targets: tuple = ()
+
+  extra_tests: tuple = ()

@@ -1,6 +1,6 @@
 include 'configs/defaults.gin'
 
-image_scale = 4
+image_scale = 2
 batch_size = 512
 eval_batch_size = 8096
 
@@ -91,4 +91,4 @@ EvalConfig.use_train_views = True
 EvalConfig.fix_view_eval = True
 EvalConfig.num_fixed_view_frames = -1
 
-NerfiesDataSource.use_gt_camera = False
+NerfiesDataSource.use_gt_camera = True

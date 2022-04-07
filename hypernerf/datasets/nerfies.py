@@ -30,6 +30,7 @@ from hypernerf import gpath
 from hypernerf import types
 from hypernerf import utils
 from hypernerf.datasets import core
+from typing import Optional
 
 
 def load_scene_info(
@@ -92,11 +93,15 @@ class NerfiesDataSource(core.DataSource):
                camera_type: str = 'json',
                test_camera_trajectory: str = 'orbit-mild',
                use_gt_camera: bool = False,
+               load_ex_test: Optional[str] = None,
                **kwargs):
     self.data_dir = gpath.GPath(data_dir)
     # Load IDs from JSON if it exists. This is useful since COLMAP fails on
     # some images so this gives us the ability to skip invalid images.
     train_ids, val_ids = _load_dataset_ids(self.data_dir)
+    if load_ex_test is not None:
+      train_ids, val_ids = _load_dataset_ids(self.data_dir / load_ex_test)
+
     super().__init__(train_ids=train_ids, val_ids=val_ids,
                      **kwargs)
     self.scene_center, self.scene_scale, self._near, self._far = (
@@ -117,11 +122,19 @@ class NerfiesDataSource(core.DataSource):
       self.camera_dir = gpath.GPath(data_dir, 'camera-gt')
 
     metadata_path = self.data_dir / 'metadata.json'
+
+    if load_ex_test is not None:
+      # load extra tests with specified rgb images, camera poses and camera metadata
+      self.rgb_dir = gpath.GPath(data_dir, load_ex_test, 'rgb', f'{image_scale}x')
+      self.camera_dir = gpath.GPath(data_dir, load_ex_test, 'camera-gt')
+      metadata_path = self.data_dir / load_ex_test / 'metadata.json'
+
     if metadata_path.exists():
       with metadata_path.open('r') as f:
         self.metadata_dict = json.load(f)
 
     self.mask_dir = gpath.GPath(data_dir, 'mask', f'{image_scale}x')
+
 
   @property
   def near(self) -> float:

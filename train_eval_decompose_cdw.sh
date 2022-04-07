@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # sbatch command: 
-# sbatch --export=application='./train_eval_decompose_eval_cdw.sh' ./slurm_script/run_slurm_ampere.sh
+# sbatch --export=application='./train_eval_decompose_cdw.sh' ./slurm_script/run_slurm_ampere.sh
 
 DATA_PATH='./data/cdw/bungalows/'
 LOG_PATH='log/cdw/bungalows/decompose_no_far_v4/'

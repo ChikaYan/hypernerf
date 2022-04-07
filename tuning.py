@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 from copy import deepcopy
 
-ROOT_PATH = './configs/decompose/tune/sigma_s_ray_loss_no_far/'
+ROOT_PATH = './configs/decompose/tune/small_skewness_chair_low_view/'
 root_dir = Path(ROOT_PATH)
 root_dir.mkdir(parents=True, exist_ok=True)
 

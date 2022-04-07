@@ -44,8 +44,8 @@ DecomposeNerfModel.sigma_threshold = 0.1
 DecomposeNerfModel.shadow_r_shift = 0.
 
 EvalConfig.niter_runtime_eval = 10000
-EvalConfig.nimg_runtime_eval = 1
-EvalConfig.ex_runtime_eval_targets = ('in000460', 'in001090')
+EvalConfig.nimg_runtime_eval = 5
+EvalConfig.ex_runtime_eval_targets = () #('in000460', 'in001090')
 
 TrainConfig.save_every = 10000
 
@@ -54,9 +54,9 @@ TrainConfig.save_every = 10000
 EvalConfig.subname = 'eval'
 EvalConfig.normalise_rendering = False
 
-EvalConfig.num_train_eval = 200
-EvalConfig.num_val_eval = -1
-EvalConfig.num_test_eval = -1
+EvalConfig.num_train_eval = -1
+EvalConfig.num_val_eval = 0
+EvalConfig.num_test_eval = 0
 EvalConfig.keep_gif_only = True
 
 EvalConfig.save_output = True

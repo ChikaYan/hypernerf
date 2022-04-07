@@ -96,6 +96,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/force_blendw_loss', stats.get('force_blendw_loss'))
   _log_scalar('loss/blendw_ray_loss', stats.get('blendw_ray_loss'))
   _log_scalar('loss/sigma_s_ray_loss', stats.get('sigma_s_ray_loss'))
+  _log_scalar('loss/sigma_d_ray_loss', stats.get('sigma_d_ray_loss'))
   _log_scalar('loss/blendw_area_loss', stats.get('blendw_area_loss'))
   _log_scalar('loss/shadow_loss', stats.get('shadow_loss'))
   _log_scalar('loss/blendw_sample_loss', stats.get('blendw_sample_loss'))
@@ -305,6 +306,7 @@ def main(argv):
   blendw_loss_weight_sched = schedules.from_config(train_config.blendw_loss_weight_schedule)
   blendw_pixel_loss_weight_sched = schedules.from_config(train_config.blendw_pixel_loss_weight_schedule)
   shadow_r_loss_weight_sched = schedules.from_config(train_config.shadow_r_loss_weight)
+  cubic_shadow_r_loss_weight_sched = schedules.from_config(train_config.cubic_shadow_r_loss_weight_schedule)
 
 
   if train_config.freeze_dynamic_steps > 0:
@@ -361,12 +363,14 @@ def main(argv):
       force_blendw_loss_weight=train_config.force_blendw_loss_weight,
       blendw_ray_loss_weight=train_config.blendw_ray_loss_weight,
       sigma_s_ray_loss_weight=train_config.sigma_s_ray_loss_weight,
+      sigma_d_ray_loss_weight=train_config.sigma_d_ray_loss_weight,
       blendw_ray_loss_threshold=train_config.blendw_ray_loss_threshold,
       blendw_area_loss_weight=train_config.blendw_area_loss_weight,
       shadow_loss_threshold=train_config.shadow_loss_threshold,
       shadow_loss_weight=train_config.shadow_loss_weight,
       blendw_sample_loss_weight=train_config.blendw_sample_loss_weight,
       shadow_r_loss_weight=shadow_r_loss_weight_sched(0),
+      cubic_shadow_r_loss_weight=cubic_shadow_r_loss_weight_sched(0),
       shadow_r_l2_loss_weight=train_config.shadow_r_l2_loss_weight,
       blendw_spatial_loss_weight=train_config.blendw_spatial_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
@@ -457,6 +461,7 @@ def main(argv):
         blendw_loss_weight=blendw_loss_weight_sched(step),
         blendw_pixel_loss_weight=blendw_pixel_loss_weight_sched(step),
         shadow_r_loss_weight=shadow_r_loss_weight_sched(step),
+        cubic_shadow_r_loss_weight=cubic_shadow_r_loss_weight_sched(step),
         )
     # pytype: enable=attribute-error
     nerf_alpha = jax_utils.replicate(nerf_alpha_sched(step), devices)
@@ -667,8 +672,10 @@ def process_iterator(tag: str,
       # save all returned arrays for debugging purpose
       dict_path = save_dir / 'model_out' 
       dict_path.mkdir(exist_ok=True, parents=True)
-      del model_out['rgb_d']
-      del model_out['rgb_s']
+      if 'rgb_d' in model_out:
+        del model_out['rgb_d']
+      if 'rgb_s' in model_out:
+        del model_out['rgb_s']
       if isinstance(model,models.DecomposeNerfModel) and not model.use_shadow_model:
         del model_out['shadow_r']
       for k in model_out.keys():

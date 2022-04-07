@@ -19,6 +19,7 @@ import functools
 import os
 import time
 from typing import Any, Dict, Optional, Sequence
+import shutil
 
 from absl import app
 from absl import flags
@@ -131,7 +132,7 @@ def compute_stats(batch, model_out):
         '\tMetrics: mse=%.04f, psnr=%.02f, ssim=%.02f, ms_ssim=%.02f',
         mse, psnr, ssim, ms_ssim)
 
-  if 'mask' in batch and 'extra_rgb_blendw' in model_out:
+  if 'mask' in batch and 'extra_rgb_mask' in model_out:
     # mask_pred = np.where(model_out['extra_rgb_blendw'][...,0] > 0.1, 1, 0)
     mask_pred = model_out['extra_rgb_mask'][..., 0]
     mask_gt = batch['mask'][...,0]
@@ -174,9 +175,20 @@ def plot_images(*,
   acc_viz = viz.colorize(acc, cmin=0.0, cmax=1.0)
   if save_dir:
     save_dir = save_dir / tag
-    save_dir.mkdir(parents=True, exist_ok=True)
-    image_utils.save_image(save_dir / f'regular_rgb_{item_id}.png',
+    regular_dir = save_dir / 'imgs' / 'regular'
+    regular_dir.mkdir(parents=True, exist_ok=True)
+    image_utils.save_image(regular_dir / f'regular_rgb_{item_id}.png',
                            image_utils.image_to_uint8(rgb))
+    # depth_exp_dir = save_dir / 'imgs' / 'depth_exp'
+    # depth_exp_dir.mkdir(parents=True, exist_ok=True)
+    # image_utils.save_depth(depth_exp_dir / f'depth_expected_{item_id}.png',
+    #                        depth_exp)
+    depth_exp_viz_dir = save_dir / 'imgs' / 'depth_exp_viz'
+    depth_exp_viz_dir.mkdir(parents=True, exist_ok=True)
+    image_utils.save_image(depth_exp_viz_dir / f'depth_expected_viz_{item_id}.png',
+                           image_utils.image_to_uint8(depth_exp_viz))
+    # depth_med_dir = save_dir / 'imgs' / 'depth_med'
+    # depth_med_dir.mkdir(parents=True, exist_ok=True)
     # image_utils.save_image(save_dir / f'depth_expected_viz_{item_id}.png',
     #                        image_utils.image_to_uint8(depth_exp_viz))
     # image_utils.save_depth(save_dir / f'depth_expected_{item_id}.png',
@@ -224,7 +236,9 @@ def plot_images(*,
 
   if extra_render_tags is not None:
     for extra_tag in extra_render_tags:
-      image_utils.save_image(save_dir / f'{extra_tag}_rgb_{item_id}.png',
+      ex_dir = save_dir / 'imgs' / extra_tag
+      ex_dir.mkdir(parents=True, exist_ok=True)
+      image_utils.save_image(ex_dir / f'{extra_tag}_rgb_{item_id}.png',
                             image_utils.image_to_uint8(model_out[f'extra_rgb_{extra_tag}'][..., :3]))
 
 
@@ -325,18 +339,21 @@ def process_iterator(tag: str,
 
     # render a video of rgb output
     if save_dir:
-      render_tags = ['regular'] 
+      render_tags = ['regular', 'depth_exp_viz'] 
       if extra_renders:
         render_tags += list(extra_renders)
       for render_tag in render_tags:
-        n_img = len(list(glob.glob(f'{save_dir}/{tag}/{render_tag}_rgb_*.png')))
-        with imageio.get_writer(f'{save_dir}/{tag}/{render_tag}.gif', fps= n_img // 10, mode='I') as writer:
-          for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/{render_tag}_rgb_*.png')):
+        # imgs = glob.glob(f'{save_dir}/{tag}/imgs/{render_tag}/{render_tag}_rgb_*.png')
+        imgs = glob.glob(f'{save_dir}/{tag}/imgs/{render_tag}/*.png')
+        n_img = len(list(imgs))
+        with imageio.get_writer(f'{save_dir}/{tag}/{render_tag}.gif', fps= max(n_img // 10, 1), mode='I') as writer:
+          for rgb_path in sorted(imgs):
             image = imageio.imread(rgb_path)
             writer.append_data(image)
       if KEEP_GIF_ONLY:
-        for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/*.png')):
-          os.remove(rgb_path)
+        shutil.rmtree(f'{save_dir}/{tag}/imgs/')
+        # for rgb_path in sorted(glob.glob(f'{save_dir}/{tag}/*.png')):
+        #   os.remove(rgb_path)
       # also log metrics
       metrics_path = save_dir / 'metrics.txt'
       detail_path = save_dir / 'metrics_breakdown'
@@ -485,36 +502,13 @@ def main(argv):
     time_id = datasource.train_ids[eval_config.fixed_time_id]
     fix_time_meta = datasource.create_iterator([time_id], batch_size=0).__next__()['metadata']
 
-    if eval_config.use_train_views:
-      # use camera poses from training views
-      cam_ids = utils.strided_subset(
-        datasource.train_ids, eval_config.num_fixed_time_views)
+    # use camera poses from training views
+    cam_ids = utils.strided_subset(
+      datasource.train_ids, eval_config.num_fixed_time_views)
 
-      fix_time_cams = []
-      for cam_id in cam_ids:
-        fix_time_cams.append(datasource.load_camera(cam_id))
-
-    else:
-      # use generated camera poses
-      cam_base = datasource.load_camera(time_id)
-      x,y,z = cam_base.position
-      r = np.sqrt(sum(a * a for a in [x,y,z]))
-      phi = np.arccos(z / r) # (180 - elevation)
-      theta = np.arccos(x / (r * np.sin(phi))) # azimuth
-      theta_change = np.pi / 4 / eval_config.num_fixed_time_views
-      
-      fix_time_cams = []
-      for i in range(eval_config.num_fixed_time_views):
-        theta_new = i * theta_change + theta
-
-        # These values of (x, y, z) will lie on the same sphere as the original camera.
-        x = r * np.cos(theta_new) * np.sin(phi)
-        y = r * np.sin(theta_new) * np.sin(phi)
-        z = r * np.cos(phi)
-
-        # new_cam = cam_base.look_at(position=np.array([x,y,z]),look_at=np.array([0,0,0]),up=np.array([0, 1, 0]))
-        new_cam = cam_base.look_at_kb(position=[x,y,z],look_at=[0,0,0], up=(0,1,0))
-        fix_time_cams.append(new_cam)
+    fix_time_cams = []
+    for cam_id in cam_ids:
+      fix_time_cams.append(datasource.load_camera(cam_id))
 
     fix_time_dataset = datasource.create_cameras_dataset(fix_time_cams)
     fix_time_ids = [f'{x:03d}' for x in range(len(fix_time_cams))]
@@ -523,39 +517,6 @@ def main(argv):
     fix_time_ids = None
     fix_time_iter = None
     fix_time_meta = None
-
-  if eval_config.novel_view_eval:
-    # create dataset for fixed time multi-view validation
-    time_id = datasource.train_ids[len(datasource.train_ids) // 2]
-    novel_view_meta = datasource.create_iterator([time_id], batch_size=0).__next__()['metadata']
-    n_views = 50
-
-    # use generated camera poses
-    cam_base = datasource.load_camera(time_id)
-    X,Y,Z = cam_base.position
-    r = 0.01
-
-    novel_view_new_cams = []
-    for i in range(n_views):
-      theta = 2 * np.pi * i / n_views
-
-      # These values of (x, y, z) will lie on the same sphere as the original camera.
-      x = X + np.cos(theta) * r
-      y = Y + np.sin(theta) * r
-      z = Z
-
-      new_cam = cam_base.copy()
-      new_cam.position = np.array([x, y, z])
-      novel_view_new_cams.append(new_cam)
-
-
-    novel_view_dataset = datasource.create_cameras_dataset(novel_view_new_cams)
-    novel_view_ids = [f'{x:03d}' for x in range(len(novel_view_new_cams))]
-    novel_view_iter = datasets.iterator_from_dataset(novel_view_dataset, batch_size=0)
-  else:
-    novel_view_ids = None
-    novel_view_iter = None
-    novel_view_meta = None
 
   # fix view varying time evaluation
   if eval_config.fix_view_eval:
@@ -578,6 +539,37 @@ def main(argv):
     fix_view_ids = None
     fix_view_iter = None
     fix_view_metas = None
+
+  if len(eval_config.extra_tests) > 0:
+    # prepare dataset for extra tests
+    extra_tests_ids = []
+    extra_tests_iter = []
+
+    for i, extra_test in enumerate(eval_config.extra_tests):
+      if not (datasource.data_dir / extra_test).exists():
+        logging.info(f'Ignoring extra test {extra_test} because folder not found')
+        continue
+      ex_datasource = exp_config.datasource_cls(
+          image_scale=exp_config.image_scale,
+          random_seed=exp_config.random_seed,
+          # Enable metadata based on model needs.
+          use_warp_id=dummy_model.use_warp,
+          use_appearance_id=(
+              dummy_model.nerf_embed_key == 'appearance'
+              or dummy_model.hyper_embed_key == 'appearance'),
+          use_camera_id=dummy_model.nerf_embed_key == 'camera',
+          use_time=dummy_model.warp_embed_key == 'time',
+          mask_interest_region=exp_config.mask_interest_region,
+          load_ex_test=extra_test)
+
+      extra_test_iter = ex_datasource.create_iterator(ex_datasource.val_ids, batch_size=0)
+      extra_tests_ids.append(ex_datasource.val_ids)
+      extra_tests_iter.append(extra_test_iter)
+      
+  else:
+    extra_tests_ids = None
+    extra_tests_iter = None
+
 
   rng, key = random.split(rng)
   params = {}
@@ -676,6 +668,7 @@ def main(argv):
           datasource=datasource,
           model=model)
 
+
     if test_eval_iter:
       process_iterator(tag='test',
                        item_ids=test_eval_ids,
@@ -704,20 +697,6 @@ def main(argv):
                        model=model,
                        metas=fix_time_meta)
 
-    if novel_view_iter:
-      process_iterator(tag='novel_view',
-                       item_ids=novel_view_ids,
-                       iterator=novel_view_iter,
-                       state=state,
-                       rng=rng,
-                       step=step,
-                       render_fn=render_fn,
-                       summary_writer=summary_writer,
-                       save_dir=save_dir,
-                       datasource=datasource,
-                       model=model,
-                       metas=novel_view_meta)
-
     if fix_view_iter:
       process_iterator(tag='fix_view',
                        item_ids=fix_view_ids,
@@ -732,6 +711,20 @@ def main(argv):
                        model=model,
                        metas=fix_view_metas)
 
+    if extra_tests_iter:
+      for i, extra_test in enumerate(eval_config.extra_tests):
+        process_iterator(
+            tag=f'extra_test_{extra_test}',
+            item_ids=extra_tests_ids[i],
+            iterator=extra_tests_iter[i],
+            state=state,
+            rng=rng,
+            step=step,
+            render_fn=render_fn,
+            summary_writer=summary_writer,
+            save_dir=save_dir,
+            datasource=datasource, # only near far are used, so can use original dataset
+            model=model)
     if save_dir:
       delete_old_renders(renders_dir, eval_config.max_render_checkpoints)
 

@@ -53,12 +53,14 @@ class ScalarParams:
   force_blendw_loss_weight: float = 1.0
   blendw_ray_loss_weight: float = 0.0
   sigma_s_ray_loss_weight: float = 0.0
+  sigma_d_ray_loss_weight: float = 0.0
   blendw_ray_loss_threshold: float = 1.0
   blendw_area_loss_weight: float = 0.0
   shadow_loss_threshold: float = 0.2
   shadow_loss_weight: float = 0.0
   blendw_sample_loss_weight: float = 0.0
   shadow_r_loss_weight: float = 0.0
+  cubic_shadow_r_loss_weight: float = 0.0
   shadow_r_l2_loss_weight: float = 0.0
   blendw_spatial_loss_weight: float = 0.0
   background_noise_std: float = 0.001
@@ -299,6 +301,29 @@ def compute_sigma_s_ray_loss(rets, mask_thresold=0.1, clip_threshold=1e-19):
   return loss / 2.
 
 @functools.partial(jax.jit)
+def compute_sigma_d_ray_loss(rets, mask_thresold=0.1, clip_threshold=1e-19):
+  """
+  Compute loss that encourage sigma_s to stay concentrated on a ray
+  """
+  loss = 0.
+
+  for label in ['coarse', 'fine']:
+    sigma_s = rets[label]['sigma_d']
+    sigma_s_sum = jnp.sum(sigma_s, -1, keepdims=True) 
+    mask = jnp.where(sigma_s_sum < mask_thresold, 0., 1.) 
+
+    dists = rets[label]['dists']
+    alpha = 1. - jnp.exp(- sigma_s * dists)
+    # prevent nan
+    alpha = jnp.clip(alpha, a_min=clip_threshold)
+    p = alpha / jnp.sum(alpha, -1, keepdims=True) 
+    
+    entropy = mask * -jnp.mean(p * jnp.log(p), -1, keepdims=True) # change from sum to mean to make scale of number more comparable
+    loss += entropy.mean()
+
+  return loss / 2.
+
+@functools.partial(jax.jit)
 def compute_blendw_pixel_loss(rets, clip_threshold=1e-19, skewness=1.0):
   """
   Compute an entropy loss on pixel level: i.e., entropy on the pixel blending ratio between dynamic and static component
@@ -379,8 +404,7 @@ def compute_blendw_sample_loss(rets):
 @functools.partial(jax.jit)
 def compute_shadow_r_loss(rets, clip_threshold=1e-19, threshold=0.):
   """
-  Compute a reverted entropy loss to encourage shadow_r to be close to 0.5
-  Or, a L1 loss 
+  Compute L1 + L2 loss on shadow_r
   """
 
   shadow_r = jnp.concatenate([rets['coarse']['shadow_r'], rets['fine']['shadow_r']],-1)
@@ -420,6 +444,30 @@ def compute_l2_shadow_r_loss(rets, threshold=0.):
 
   return loss / 2.
 
+def computer_shadow_r_temporal_loss(rets, ex_time_rets):
+  """
+  Encourage the shadow_r to be smooth temporally
+  """
+  loss = 0.
+
+  for label in ['coarse', 'fine']:
+    diff = (rets[label]['shadow_r'] - ex_time_rets[label]['shadow_r'])**2
+    loss += diff.mean()
+
+  return loss / 2.
+
+@functools.partial(jax.jit)
+def compute_cubic_shadow_r_loss(rets, clip_threshold=1e-19, threshold=0.):
+  """
+  Compute shadow_r loss based on a cubic function
+  """
+
+  shadow_r = jnp.concatenate([rets['coarse']['shadow_r'], rets['fine']['shadow_r']],-1)
+
+  # https://www.desmos.com/calculator/2bpe0qbyxa
+  loss = ((1.75 * (shadow_r - 0.5)) ** 3 + 0.1 * shadow_r + 0.5).mean()
+
+  return loss
 
 # @functools.partial(jax.jit)
 # def compute_shadow_r_consistency_loss(rets, clip_threshold=1e-19):
@@ -696,6 +744,11 @@ def train_step(model: models.NerfModel,
         scalar_params.sigma_s_ray_loss_weight * sigma_s_ray_loss)
       stats['sigma_s_ray_loss'] = sigma_s_ray_loss
 
+      # sigma_d_ray_loss = compute_sigma_d_ray_loss(ret)   
+      # losses['sigma_d_ray_loss'] = (
+      #   scalar_params.sigma_d_ray_loss_weight * sigma_d_ray_loss)
+      # stats['sigma_d_ray_loss'] = sigma_d_ray_loss
+
       blendw_area_loss = compute_blendw_area_loss(ret['coarse']['blendw'], ret['fine']['blendw'])   
       losses['blendw_area_loss'] = (
         scalar_params.blendw_area_loss_weight * blendw_area_loss)
@@ -722,6 +775,11 @@ def train_step(model: models.NerfModel,
         losses['shadow_r_l2_loss'] = (
           scalar_params.shadow_r_l2_loss_weight * shadow_r_l2_loss)
         stats['shadow_r_l2_loss'] = shadow_r_l2_loss
+
+        cubic_shadow_r_loss = compute_cubic_shadow_r_loss(ret)
+        losses['cubic_shadow_r_loss'] = (
+          scalar_params.cubic_shadow_r_loss_weight * cubic_shadow_r_loss)
+        stats['cubic_shadow_r_loss'] = cubic_shadow_r_loss
 
       if model.use_spatial_loss:
         # apply shadow model related loss

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # sbatch command: 
-# sbatch --export=application='./train_eval_decompose_eval_add_blend.sh' ./slurm_script/run_slurm_ampere.sh
+# sbatch --export=application='./train_eval_decompose_add_blend.sh' ./slurm_script/run_slurm_ampere.sh
 
 DATA_PATH='./data/davis/swing/'
 LOG_PATH='log/davis/swing/huge_loss_v5/'

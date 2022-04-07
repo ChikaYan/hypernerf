@@ -2270,7 +2270,13 @@ class DecomposeNerfModel(NerfModel):
         rgb_no_blur = out['rgb']
         out['rgb'] = (1 - 2*blur_w) * out['rgb'] + rgb_ray_blur
 
-      for render_mode in self.extra_renders:
+      extra_renders = list(self.extra_renders)
+      if 'mask' in extra_renders:
+        # render mask in the last place to re-use previous renderings
+        extra_renders.remove('mask')
+        extra_renders.append('mask')
+
+      for render_mode in extra_renders:
         ex_rgb_d, ex_sigma_d = rgb_d, sigma_d 
         ex_rgb_s, ex_sigma_s = rgb_s, sigma_s
         ex_blendw = blendw
@@ -2288,6 +2294,12 @@ class DecomposeNerfModel(NerfModel):
         elif render_mode == 'mask':
           # render a thresholded blendw as mask
           mask = jnp.where(out['rgb_blendw'] > self.blendw_mask_threshold, 1., 0.)
+          if self.use_shadow_model:
+            # consider shadow into the mask
+            if 'extra_rgb_shadow' not in out:
+              raise NotImplementedError('Must render extra_rgb_shadow before mask if shadow model is enabled')
+            mask = jnp.where(out['rgb_blendw'] + out['extra_rgb_shadow'] > self.blendw_mask_threshold, 1., 0.)
+
           out[f'extra_rgb_{render_mode}'] =  mask
           continue
         # elif render_mode == 'deformation_norm':

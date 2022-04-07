@@ -27,7 +27,7 @@
             ]
         },
         {
-            "name": "train_decompose",
+            "name": "train_decompose_lf",
             "type": "python",
             "request": "launch",
             "program": "train.py",
@@ -37,7 +37,7 @@
                 "debug/decompose",
                 "--gin_bindings=\"data_dir='./data/my_hand_large_motion/'\"",
                 "--gin_configs",
-                "configs/decompose/train.gin",
+                "configs/decompose/train_lf.gin",
                 "--debug"
             ]
         },
@@ -170,10 +170,10 @@
             "console": "integratedTerminal",
             "args": [
                 "--base_folder",
-                "log/my_hand_large_motion/render_debug/better_no_far_d/",
-                "--gin_bindings=\"data_dir='./data/my_hand_large_motion/'\"",
+                "log/kubric_single_car_rand_v2/test_stability_v1/",
+                "--gin_bindings=\"data_dir='./data/kubric_single_car_rand_v2/'\"",
                 "--gin_configs",
-                "configs/decompose/eval_debug.gin",
+                "configs/decompose/train_debug.gin",
                 "--debug"
             ]
         },
@@ -206,6 +206,21 @@
                 "configs/decompose/train_cdw.gin",
                 "--debug"
             ]
-        }
+        },
+        {
+            "name": "eval_tune",
+            "type": "python",
+            "request": "launch",
+            "program": "eval.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--base_folder",
+                "log/kubric_multi_car_rand/tune/small_skewness_2_gt/003",
+                "--gin_bindings=\"data_dir='./data/kubric_multi_car_rand/'\"",
+                "--gin_configs",
+                "configs/decompose/tune/small_skewness_2_gt/003.gin",
+                "--debug"
+            ]
+        },
     ]
 }
