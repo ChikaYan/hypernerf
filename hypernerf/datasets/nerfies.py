@@ -126,7 +126,7 @@ class NerfiesDataSource(core.DataSource):
     if load_ex_test is not None:
       # load extra tests with specified rgb images, camera poses and camera metadata
       self.rgb_dir = gpath.GPath(data_dir, load_ex_test, 'rgb', f'{image_scale}x')
-      self.camera_dir = gpath.GPath(data_dir, load_ex_test, 'camera-gt')
+      self.camera_dir = gpath.GPath(data_dir, load_ex_test, 'camera-gt' if use_gt_camera else 'camera')
       metadata_path = self.data_dir / load_ex_test / 'metadata.json'
 
     if metadata_path.exists():
