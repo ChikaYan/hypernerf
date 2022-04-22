@@ -39,6 +39,8 @@ import tensorflow_hub as tf_hub
 import pdb
 import glob
 import imageio
+from lpips import LPIPS
+import torch
 
 from hypernerf import configs
 from hypernerf import datasets
@@ -86,6 +88,24 @@ def compute_ssim(image1: jnp.ndarray, image2: jnp.ndarray, pad=0,
       max_val=1.0)
   return np.asarray(psnr)
 
+def compute_lpips(image1: jnp.ndarray, image2: jnp.ndarray):
+  """Compute the LPIPS metric."""
+  image1 = np.array(image1)
+  image2 = np.array(image2)
+
+  loss_fn_alex = LPIPS(net='alex', version=0.1)
+
+  # normalize to [-1,1]
+  image1 = (image1 - .5) * 2
+  image2 = (image2 - .5) * 2
+
+  image1 = np.transpose(image1[None,...],[0,3,1,2])
+  image2 = np.transpose(image2[None,...],[0,3,1,2])
+  
+  lpip = loss_fn_alex(torch.from_numpy(image1), torch.from_numpy(image2))
+
+  return np.asarray(lpip.detach().numpy())
+
 def compute_jaccard_index(mask_pred, mask_gt):
   # deal with region of interest
   mask_pred = mask_pred.reshape(-1)
@@ -122,15 +142,17 @@ def compute_stats(batch, model_out):
     mse = ((rgb - batch['rgb'][..., :3])**2).mean()
     psnr = utils.compute_psnr(mse)
     ssim = compute_ssim(rgb_target, rgb)
+    lpip = compute_lpips(rgb_target, rgb)
     ms_ssim = compute_multiscale_ssim(rgb_target, rgb)
     stats['mse'] = mse
     stats['psnr'] = psnr
     stats['ssim'] = ssim
+    stats['lpip'] = lpip
     stats['ms_ssim'] = ms_ssim
 
     logging.info(
-        '\tMetrics: mse=%.04f, psnr=%.02f, ssim=%.02f, ms_ssim=%.02f',
-        mse, psnr, ssim, ms_ssim)
+        '\tMetrics: mse=%.04f, psnr=%.02f, ssim=%.02f, ms_ssim=%.02f, lpip=%.02f',
+        mse, psnr, ssim, ms_ssim, lpip)
 
   if 'mask' in batch and 'extra_rgb_mask' in model_out:
     # mask_pred = np.where(model_out['extra_rgb_blendw'][...,0] > 0.1, 1, 0)
@@ -365,7 +387,7 @@ def process_iterator(tag: str,
           f.write(f"{meter_name}: {np.average(vs)}\n")
 
           # write detailed version for every img
-          np.savetxt(detail_path / f"{meter_name}.txt", np.array(meter._values))
+          np.savetxt(detail_path / f"{meter_name}.txt", np.array(meter._values).flatten())
 
 
 def delete_old_renders(render_dir, max_renders):
@@ -458,7 +480,7 @@ def main(argv):
       image_scale=exp_config.image_scale,
       random_seed=exp_config.random_seed,
       # Enable metadata based on model needs.
-      use_warp_id=dummy_model.use_warp,
+      use_warp_id=True, # dummy_model.use_warp,
       use_appearance_id=(
           dummy_model.nerf_embed_key == 'appearance'
           or dummy_model.hyper_embed_key == 'appearance'),
