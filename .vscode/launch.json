@@ -12,6 +12,21 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "train_original_no_warp",
+            "type": "python",
+            "request": "launch",
+            "program": "train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--base_folder",
+                "log/debug/original_no_warp",
+                "--gin_bindings=\"data_dir='./data/hypernerf/vrig-chicken/'\"",
+                "--gin_configs",
+                "configs/hypernerf_vrig_no_warp.gin",
+                "--debug"
+            ]
+        },
+        {
             "name": "train_original",
             "type": "python",
             "request": "launch",
@@ -20,9 +35,24 @@
             "args": [
                 "--base_folder",
                 "log/debug/original",
-                "--gin_bindings=\"data_dir='./data/kubric_car_only/'\"",
+                "--gin_bindings=\"data_dir='./data/kubric_single_car_rand/'\"",
                 "--gin_configs",
                 "configs/test_local_gt.gin",
+                "--debug"
+            ]
+        },
+        {
+            "name": "train_original_large",
+            "type": "python",
+            "request": "launch",
+            "program": "train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--base_folder",
+                "log/debug/original",
+                "--gin_bindings=\"data_dir='./data/pick_drop/'\"",
+                "--gin_configs",
+                "configs/test_local_large.gin",
                 "--debug"
             ]
         },
@@ -72,15 +102,15 @@
             ]
         },
         {
-            "name": "train_decompose_debug",
+            "name": "train_tune_debug",
             "type": "python",
             "request": "launch",
             "program": "train.py",
             "console": "integratedTerminal",
             "args": [
                 "--base_folder",
-                "log/kubric_single_car_rand/tune/tune_debug/nan_v2",
-                "--gin_bindings=\"data_dir='./data/kubric_single_car_rand/'\"",
+                "log/hypernerf/broom/debug_nan",
+                "--gin_bindings=\"data_dir='./data/hypernerf/broom/'\"",
                 "--gin_configs",
                 "configs/decompose/tune/tune_debug.gin",
                 "--debug"

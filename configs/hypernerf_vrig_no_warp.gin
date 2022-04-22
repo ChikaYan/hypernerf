@@ -1,46 +1,44 @@
 include 'configs/defaults.gin'
 
-image_scale = 2
-batch_size = 4096
+max_steps = 250000
+lr_decay_steps = %max_steps
+
+image_scale = 4
+batch_size = 6144
 eval_batch_size = 8096
+init_lr = 0.001
+final_lr = 0.0001
+elastic_init_weight = 0.001
+TrainConfig.lr_schedule = %DEFAULT_LR_SCHEDULE
 
-elastic_init_weight = 0.01
-max_steps = 100000
-lr_decay_steps = 500000
-init_lr = 1e-3
-final_lr = 1e-5
-
-NerfModel.num_coarse_samples = 64
-NerfModel.num_fine_samples = 64
+# Basic model config.
+NerfModel.nerf_trunk_width = 256
+NerfModel.nerf_trunk_depth = 8
+NerfModel.num_coarse_samples = 128
+NerfModel.num_fine_samples = 128
 NerfModel.use_viewdirs = True
-NerfModel.use_stratified_sampling = True
+NerfModel.use_posenc_identity = True
+SE3Field.use_posenc_identity = True
 
-NerfModel.norm_type = 'none'
-NerfModel.activation = @jax.nn.relu
+NerfModel.nerf_embed_key = 'camera'
+NerfModel.use_rgb_condition = True
 
+# NeRF position encoding configs.
 spatial_point_min_deg = 0
 spatial_point_max_deg = 8
 
-# Hyper config.
-hyper_num_dims = 4
+# Hyper configs.
+hyper_num_dims = 2
 hyper_point_min_deg = 0
 hyper_point_max_deg = 1
 NerfModel.hyper_point_min_deg = %hyper_point_min_deg
 NerfModel.hyper_point_max_deg = %hyper_point_max_deg
-TrainConfig.hyper_alpha_schedule = {
-  'type': 'piecewise',
-  'schedules': [
-    (1000, ('constant', 0.0)),
-    (0, ('linear', 0.0, %hyper_point_max_deg, 10000))
-  ],
-}
 
+TrainConfig.hyper_alpha_schedule = %DELAYED_HYPER_ALPHA_SCHED
 
 NerfModel.hyper_slice_method = 'bendy_sheet'
-# this disables time coordinate input
-# NerfModel.hyper_slice_method = 'none'
 NerfModel.hyper_sheet_mlp_cls = @HyperSheetMLP
-NerfModel.hyper_use_warp_embed = True
+NerfModel.hyper_use_warp_embed = False
 
 hyper_sheet_min_deg = 0
 hyper_sheet_max_deg = 6
@@ -49,14 +47,16 @@ HyperSheetMLP.max_deg = %hyper_sheet_max_deg
 HyperSheetMLP.output_channels = %hyper_num_dims
 TrainConfig.hyper_sheet_alpha_schedule = ('constant', %hyper_sheet_max_deg)
 
-NerfModel.use_warp = True
+# Warp config.
+NerfModel.use_warp = False
 warp_min_deg = 0
-warp_max_deg = 4
+warp_max_deg = 6
+warp_alpha_steps = 80000
 TrainConfig.warp_alpha_schedule = {
   'type': 'linear',
   'initial_value': %warp_min_deg,
   'final_value': %warp_max_deg,
-  'num_steps': 50000,
+  'num_steps': %warp_alpha_steps,
 }
 
 TrainConfig.use_weight_norm = False
@@ -64,16 +64,28 @@ TrainConfig.use_elastic_loss = False
 TrainConfig.use_background_loss = False
 TrainConfig.background_loss_weight = 1.0
 
-TrainConfig.use_warp_reg_loss = True
-TrainConfig.warp_reg_loss_weight = 0.001
-TrainConfig.use_hyper_reg_loss = False
-TrainConfig.hyper_reg_loss_weight = 0.001
+TrainConfig.use_warp_reg_loss = False
+TrainConfig.warp_reg_loss_weight = 1e-2
+
+TrainConfig.elastic_reduce_method = 'weight'
+TrainConfig.elastic_loss_weight_schedule = {
+  'type': 'constant',
+  'value': %elastic_init_weight,
+}
+
 
 TrainConfig.print_every = 100
 TrainConfig.log_every = 100
-TrainConfig.histogram_every = 100
-TrainConfig.save_every = 1000
-EvalConfig.nimg_runtime_eval = 5
+TrainConfig.histogram_every = 1000
+TrainConfig.save_every = 10000
+
+EvalConfig.num_val_eval = None
+EvalConfig.num_train_eval = None
+EvalConfig.eval_once = False
+EvalConfig.save_output = True
+
+
+EvalConfig.nimg_runtime_eval = 3
 EvalConfig.niter_runtime_eval = 10000
 
 EvalConfig.eval_once = True
@@ -90,5 +102,3 @@ EvalConfig.num_fixed_time_views = -1
 EvalConfig.use_train_views = True
 EvalConfig.fix_view_eval = True
 EvalConfig.num_fixed_view_frames = -1
-
-NerfiesDataSource.use_gt_camera = True

@@ -1,0 +1,137 @@
+# Macros:
+# ==============================================================================
+batch_size = 6144
+CONSTANT_HYPER_ALPHA_SCHED = ('constant', %hyper_point_max_deg)
+# data_dir = 'datasets/vrig/broom2'
+DEFAULT_LR_SCHEDULE = \
+    {'final_value': %final_lr,
+     'initial_value': %init_lr,
+     'num_steps': %max_steps,
+     'type': 'exponential'}
+elastic_init_weight = 0.001
+final_lr = 0.0001
+hyper_num_dims = 2
+hyper_point_max_deg = 1
+hyper_point_min_deg = 0
+hyper_sheet_max_deg = 6
+hyper_sheet_min_deg = 0
+image_scale = 4
+init_lr = 0.001
+max_steps = 250000
+spatial_point_max_deg = 8
+spatial_point_min_deg = 0
+warp_alpha_steps = 80000
+warp_max_deg = 6
+warp_min_deg = 0
+
+# Parameters for ExperimentConfig:
+# ==============================================================================
+ExperimentConfig.datasource_cls = @NerfiesDataSource
+ExperimentConfig.image_scale = %image_scale
+ExperimentConfig.random_seed = 0
+ExperimentConfig.subname = 'no-deform/0'
+
+# Parameters for GLOEmbed:
+# ==============================================================================
+# None.
+
+# Parameters for hyper/GLOEmbed:
+# ==============================================================================
+hyper/GLOEmbed.num_dims = %hyper_num_dims
+
+# Parameters for HyperSheetMLP:
+# ==============================================================================
+HyperSheetMLP.depth = 6
+HyperSheetMLP.max_deg = %hyper_sheet_max_deg
+HyperSheetMLP.min_deg = %hyper_sheet_min_deg
+HyperSheetMLP.output_channels = %hyper_num_dims
+HyperSheetMLP.skips = (4,)
+HyperSheetMLP.use_residual = False
+HyperSheetMLP.width = 64
+
+# Parameters for NerfiesDataSource:
+# ==============================================================================
+# NerfiesDataSource.camera_type = 'proto'
+NerfiesDataSource.data_dir = %data_dir
+NerfiesDataSource.shuffle_pixels = False
+NerfiesDataSource.test_camera_trajectory = 'orbit-mild'
+
+# Parameters for NerfModel:
+# ==============================================================================
+NerfModel.alpha_channels = 1
+NerfModel.hyper_embed_cls = @hyper/GLOEmbed
+NerfModel.hyper_embed_key = 'appearance'
+NerfModel.hyper_point_max_deg = %hyper_point_max_deg
+NerfModel.hyper_point_min_deg = %hyper_point_min_deg
+NerfModel.hyper_sheet_mlp_cls = @HyperSheetMLP
+NerfModel.hyper_sheet_use_input_points = True
+NerfModel.hyper_slice_method = 'bendy_sheet'
+NerfModel.hyper_use_warp_embed = False
+NerfModel.nerf_embed_cls = @nerf/GLOEmbed
+NerfModel.nerf_embed_key = 'camera'
+NerfModel.nerf_rgb_branch_depth = 1
+NerfModel.nerf_rgb_branch_width = 128
+NerfModel.nerf_skips = (4,)
+NerfModel.nerf_trunk_depth = 8
+NerfModel.nerf_trunk_width = 256
+NerfModel.noise_std = None
+NerfModel.norm_type = None
+NerfModel.num_coarse_samples = 128
+NerfModel.num_fine_samples = 128
+NerfModel.rgb_channels = 3
+NerfModel.spatial_point_max_deg = %spatial_point_max_deg
+NerfModel.spatial_point_min_deg = %spatial_point_min_deg
+NerfModel.use_alpha_condition = False
+NerfModel.use_linear_disparity = False
+NerfModel.use_nerf_embed = False
+NerfModel.use_posenc_identity = True
+NerfModel.use_rgb_condition = True
+NerfModel.use_sample_at_infinity = True
+NerfModel.use_stratified_sampling = True
+NerfModel.use_viewdirs = True
+NerfModel.use_warp = False
+NerfModel.use_white_background = False
+NerfModel.viewdir_max_deg = 4
+NerfModel.viewdir_min_deg = 0
+NerfModel.warp_embed_cls = @warp/GLOEmbed
+NerfModel.warp_embed_key = 'warp'
+NerfModel.warp_field_cls = @SE3Field
+
+# Parameters for TrainConfig:
+# ==============================================================================
+TrainConfig.background_loss_weight = 1.0
+TrainConfig.background_points_batch_size = 16384
+TrainConfig.batch_size = %batch_size
+TrainConfig.curvature_loss_alpha = 0
+TrainConfig.curvature_loss_scale = 0
+TrainConfig.curvature_loss_spacing = 0
+TrainConfig.curvature_loss_weight_schedule = None
+TrainConfig.elastic_loss_type = 'log_svals'
+TrainConfig.elastic_loss_weight_schedule = \
+    {'type': 'constant', 'value': %elastic_init_weight}
+TrainConfig.elastic_reduce_method = 'weight'
+TrainConfig.histogram_every = 1000
+TrainConfig.hyper_alpha_schedule = %CONSTANT_HYPER_ALPHA_SCHED
+TrainConfig.hyper_reg_loss_weight = 0.0
+TrainConfig.hyper_sheet_alpha_schedule = ('constant', %hyper_sheet_max_deg)
+TrainConfig.log_every = 100
+TrainConfig.lr_schedule = %DEFAULT_LR_SCHEDULE
+TrainConfig.max_steps = %max_steps
+TrainConfig.nerf_alpha_schedule = ('constant', %spatial_point_max_deg)
+TrainConfig.print_every = 100
+TrainConfig.save_every = 10000
+TrainConfig.shuffle_buffer_size = 5000000
+TrainConfig.use_background_loss = False
+TrainConfig.use_curvature_loss = False
+TrainConfig.use_elastic_loss = False
+TrainConfig.use_hyper_reg_loss = False
+TrainConfig.use_warp_reg_loss = False
+TrainConfig.use_weight_norm = False
+TrainConfig.warp_alpha_schedule = \
+    {'final_value': %warp_max_deg,
+     'initial_value': %warp_min_deg,
+     'num_steps': %warp_alpha_steps,
+     'type': 'linear'}
+TrainConfig.warp_reg_loss_alpha = -2.0
+TrainConfig.warp_reg_loss_scale = 0.001
+TrainConfig.warp_reg_loss_weight = 0.01

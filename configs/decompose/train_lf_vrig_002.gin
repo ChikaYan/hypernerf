@@ -1,0 +1,113 @@
+include './configs/decompose/train_lf_template.gin'
+
+image_scale = 4
+
+NerfiesDataSource.use_gt_camera = False
+
+DecomposeNerfModel.use_sample_at_infinity = True
+
+StaticNerfModel.use_viewdirs = True
+
+DecomposeNerfModel.use_viewdirs = True
+
+DecomposeNerfModel.viewdir_max_deg = 0
+
+StaticNerfModel.viewdir_max_deg = 0
+
+DecomposeNerfModel.use_shadow_model = False
+
+TrainConfig.blendw_loss_weight_schedule = {
+  'type': 'exp_increase',
+  'initial_value': 1e-05,
+  'final_value': 1.0,
+  'num_steps': 100000,
+  }
+TrainConfig.blendw_loss_skewness = 2.75
+
+TrainConfig.blendw_area_loss_weight = 0.001
+
+EvalConfig.num_train_eval = -1
+
+EvalConfig.num_test_eval = 0
+
+EvalConfig.niter_runtime_eval = 25000
+
+
+max_steps = 250000
+lr_decay_steps = %max_steps
+
+image_scale = 4
+batch_size = 6144
+eval_batch_size = 8096
+init_lr = 0.001
+final_lr = 0.0001
+# elastic_init_weight = 0.001
+# TrainConfig.lr_schedule = %DEFAULT_LR_SCHEDULE
+
+# Basic model config.
+DecomposeNerfModel.nerf_trunk_width = 256
+DecomposeNerfModel.nerf_trunk_depth = 8
+DecomposeNerfModel.num_coarse_samples = 128
+DecomposeNerfModel.num_fine_samples = 128
+StaticNerfModel.num_coarse_samples = 128
+StaticNerfModel.num_fine_samples = 128
+# DecomposeNerfModel.use_viewdirs = True
+# DecomposeNerfModel.use_posenc_identity = True
+# SE3Field.use_posenc_identity = True
+
+# DecomposeNerfModel.nerf_embed_key = 'camera'
+# DecomposeNerfModel.use_rgb_condition = True
+
+# # NeRF position encoding configs.
+# spatial_point_min_deg = 0
+# spatial_point_max_deg = 8
+
+# # Hyper configs.
+# hyper_num_dims = 2
+# hyper_point_min_deg = 0
+# hyper_point_max_deg = 1
+# DecomposeNerfModel.hyper_point_min_deg = %hyper_point_min_deg
+# DecomposeNerfModel.hyper_point_max_deg = %hyper_point_max_deg
+
+# TrainConfig.hyper_alpha_schedule = %DELAYED_HYPER_ALPHA_SCHED
+
+# DecomposeNerfModel.hyper_slice_method = 'bendy_sheet'
+# DecomposeNerfModel.hyper_sheet_mlp_cls = @HyperSheetMLP
+# DecomposeNerfModel.hyper_use_warp_embed = False
+
+# hyper_sheet_min_deg = 0
+# hyper_sheet_max_deg = 6
+# HyperSheetMLP.min_deg = %hyper_sheet_min_deg
+# HyperSheetMLP.max_deg = %hyper_sheet_max_deg
+# HyperSheetMLP.output_channels = %hyper_num_dims
+# TrainConfig.hyper_sheet_alpha_schedule = ('constant', %hyper_sheet_max_deg)
+
+# # Warp config.
+# DecomposeNerfModel.use_warp = True
+# warp_min_deg = 0
+# warp_max_deg = 6
+# warp_alpha_steps = 80000
+# TrainConfig.warp_alpha_schedule = {
+#   'type': 'linear',
+#   'initial_value': %warp_min_deg,
+#   'final_value': %warp_max_deg,
+#   'num_steps': %warp_alpha_steps,
+# }
+
+# StaticNerfModel.use_rgb_condition = True
+
+# TrainConfig.use_weight_norm = False
+# TrainConfig.use_elastic_loss = False
+# TrainConfig.use_background_loss = False
+# TrainConfig.background_loss_weight = 1.0
+
+# TrainConfig.use_warp_reg_loss = False
+# TrainConfig.warp_reg_loss_weight = 1e-2
+
+# TrainConfig.elastic_reduce_method = 'weight'
+# TrainConfig.elastic_loss_weight_schedule = {
+#   'type': 'constant',
+#   'value': %elastic_init_weight,
+# }
+
+

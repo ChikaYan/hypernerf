@@ -8,19 +8,19 @@ NerfiesDataSource.use_gt_camera = False
 DecomposeNerfModel.handle_motion_blur = False
 StaticNerfModel.use_viewdirs = True
 DecomposeNerfModel.use_viewdirs = True
-DecomposeNerfModel.extra_renders = ('static', 'dynamic', 'blendw', 'mask', 'shadow', 'regular_no_shadow')
+DecomposeNerfModel.extra_renders = ('static', 'dynamic', 'blendw', 'mask') #, 'shadow', 'regular_no_shadow')
 DecomposeNerfModel.blend_mode = 'add'
 DecomposeNerfModel.use_sample_at_infinity = False
-DecomposeNerfModel.use_shadow_model = True
+DecomposeNerfModel.use_shadow_model = False
 
 # TrainConfig.blendw_loss_weight_schedule = ('constant', 0.)
 TrainConfig.blendw_loss_weight_schedule = {
-  'type': 'linear',
-  'initial_value': 0.0001,
-  'final_value': 0.01,
+  'type': 'exp_increase',
+  'initial_value': 0.00001,
+  'final_value': 1.0,
   'num_steps': 100000 #%max_steps,
 }
-TrainConfig.blendw_loss_skewness = 1.75
+TrainConfig.blendw_loss_skewness = 1.5
 
 # TrainConfig.blendw_pixel_loss_weight_schedule = {
 #   'type': 'exp_increase',
@@ -37,6 +37,7 @@ TrainConfig.blendw_area_loss_weight = 0.001
 TrainConfig.shadow_loss_threshold = 0.2
 TrainConfig.shadow_loss_weight = 0.
 TrainConfig.blendw_sample_loss_weight = 0.
+TrainConfig.sigma_s_ray_loss_weight = 0.01
 
 DecomposeNerfModel.separate_shadow_model = True
 # TrainConfig.shadow_r_loss_weight = ('constant', 0.01)
@@ -77,3 +78,4 @@ EvalConfig.fix_view_eval = False
 EvalConfig.num_fixed_view_frames = -1
 EvalConfig.novel_view_eval = False
 
+EvalConfig.extra_tests = ('freeze-test',)
