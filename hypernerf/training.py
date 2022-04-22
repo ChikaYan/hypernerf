@@ -61,6 +61,7 @@ class ScalarParams:
   blendw_sample_loss_weight: float = 0.0
   shadow_r_loss_weight: float = 0.0
   cubic_shadow_r_loss_weight: float = 0.0
+  shadow_r_consistency_loss_weight: float = 0.0
   shadow_r_l2_loss_weight: float = 0.0
   blendw_spatial_loss_weight: float = 0.0
   background_noise_std: float = 0.001
@@ -416,6 +417,7 @@ def compute_shadow_r_loss(rets, clip_threshold=1e-19, threshold=0.):
 
   mask = jnp.where(threshold < shadow_r, 1., 0.) 
   loss = (((shadow_r + shadow_r**2) * mask)).mean()
+  # loss = ((shadow_r * mask)).mean()
 
   return loss
 
@@ -455,6 +457,20 @@ def computer_shadow_r_temporal_loss(rets, ex_time_rets):
     loss += diff.mean()
 
   return loss / 2.
+
+def computer_shadow_r_consistency_loss(rets, threshold=0.01):
+  """
+  Encourage the shadow_r to be consistent every where
+  """
+  loss = 0.
+
+  shadow_r = jnp.concatenate([rets['coarse']['shadow_r'], rets['fine']['shadow_r']],-1)
+
+  mask = jnp.where(threshold < shadow_r, 1., 0.) 
+  shadow_r_mean = (shadow_r * mask).sum() / jnp.clip(mask.sum(), a_min=1e-19)
+  loss = ((shadow_r - shadow_r_mean) ** 2 * mask).mean()
+
+  return loss
 
 @functools.partial(jax.jit)
 def compute_cubic_shadow_r_loss(rets, clip_threshold=1e-19, threshold=0.):
@@ -776,10 +792,15 @@ def train_step(model: models.NerfModel,
           scalar_params.shadow_r_l2_loss_weight * shadow_r_l2_loss)
         stats['shadow_r_l2_loss'] = shadow_r_l2_loss
 
-        cubic_shadow_r_loss = compute_cubic_shadow_r_loss(ret)
-        losses['cubic_shadow_r_loss'] = (
-          scalar_params.cubic_shadow_r_loss_weight * cubic_shadow_r_loss)
-        stats['cubic_shadow_r_loss'] = cubic_shadow_r_loss
+        # cubic_shadow_r_loss = compute_cubic_shadow_r_loss(ret)
+        # losses['cubic_shadow_r_loss'] = (
+        #   scalar_params.cubic_shadow_r_loss_weight * cubic_shadow_r_loss)
+        # stats['cubic_shadow_r_loss'] = cubic_shadow_r_loss
+
+        shadow_r_consistency_loss = computer_shadow_r_consistency_loss(ret)
+        losses['shadow_r_consistency_loss'] = (
+          scalar_params.shadow_r_consistency_loss_weight * shadow_r_consistency_loss)
+        stats['shadow_r_consistency_loss'] = shadow_r_consistency_loss
 
       if model.use_spatial_loss:
         # apply shadow model related loss

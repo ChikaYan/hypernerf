@@ -133,6 +133,10 @@ class TrainConfig:
       'type': 'constant',
       'value': 0.0,
   })
+  shadow_r_consistency_loss_weight_schedule: Optional[ScheduleDef] = immutabledict.immutabledict({
+      'type': 'constant',
+      'value': 0.0,
+  })
   shadow_r_l2_loss_weight: float = 0.0
   blendw_spatial_loss_weight: float = 0.0
   # The batch size for background regularization loss.

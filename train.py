@@ -101,6 +101,7 @@ def _log_to_tensorboard(writer: tensorboard.SummaryWriter,
   _log_scalar('loss/shadow_loss', stats.get('shadow_loss'))
   _log_scalar('loss/blendw_sample_loss', stats.get('blendw_sample_loss'))
   _log_scalar('loss/shadow_r_loss', stats.get('shadow_r_loss'))
+  _log_scalar('loss/shadow_r_consistency_loss', stats.get('shadow_r_consistency_loss'))
   _log_scalar('loss/shadow_r_l2_loss', stats.get('shadow_r_l2_loss'))
   _log_scalar('loss/blendw_spatial_loss', stats.get('blendw_spatial_loss'))
   _log_scalar('loss/ex_blendw_ray_loss', stats.get('ex_blendw_ray_loss'))
@@ -247,7 +248,7 @@ def main(argv):
       image_scale=exp_config.image_scale,
       random_seed=exp_config.random_seed,
       # Enable metadata based on model needs.
-      use_warp_id=dummy_model.use_warp,
+      use_warp_id=True, # dummy_model.use_warp,
       use_appearance_id=(
           dummy_model.nerf_embed_key == 'appearance'
           or dummy_model.hyper_embed_key == 'appearance'),
@@ -307,6 +308,7 @@ def main(argv):
   blendw_pixel_loss_weight_sched = schedules.from_config(train_config.blendw_pixel_loss_weight_schedule)
   shadow_r_loss_weight_sched = schedules.from_config(train_config.shadow_r_loss_weight)
   cubic_shadow_r_loss_weight_sched = schedules.from_config(train_config.cubic_shadow_r_loss_weight_schedule)
+  shadow_r_consistency_loss_weight_sched = schedules.from_config(train_config.shadow_r_consistency_loss_weight_schedule)
 
 
   if train_config.freeze_dynamic_steps > 0:
@@ -371,6 +373,7 @@ def main(argv):
       blendw_sample_loss_weight=train_config.blendw_sample_loss_weight,
       shadow_r_loss_weight=shadow_r_loss_weight_sched(0),
       cubic_shadow_r_loss_weight=cubic_shadow_r_loss_weight_sched(0),
+      shadow_r_consistency_loss_weight=shadow_r_consistency_loss_weight_sched(0),
       shadow_r_l2_loss_weight=train_config.shadow_r_l2_loss_weight,
       blendw_spatial_loss_weight=train_config.blendw_spatial_loss_weight,
       hyper_reg_loss_weight=train_config.hyper_reg_loss_weight)
@@ -462,6 +465,7 @@ def main(argv):
         blendw_pixel_loss_weight=blendw_pixel_loss_weight_sched(step),
         shadow_r_loss_weight=shadow_r_loss_weight_sched(step),
         cubic_shadow_r_loss_weight=cubic_shadow_r_loss_weight_sched(step),
+        shadow_r_consistency_loss_weight=shadow_r_consistency_loss_weight_sched(step),
         )
     # pytype: enable=attribute-error
     nerf_alpha = jax_utils.replicate(nerf_alpha_sched(step), devices)
