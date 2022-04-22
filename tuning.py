@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 from copy import deepcopy
 
-ROOT_PATH = './configs/decompose/tune/small_skewness_chair_low_view/'
+ROOT_PATH = './configs/decompose/tune/lf_no_warp_v2/'
 root_dir = Path(ROOT_PATH)
 root_dir.mkdir(parents=True, exist_ok=True)
 
@@ -63,14 +63,20 @@ else:
   with (root_dir / 'config.json').open('w') as f:
     json.dump(tune_conf, f, indent=2)
 
+if 'quick_exp' in tune_conf:
+  params.append({'text': "max_steps = {}\n",
+                'values': [20000 if tune_conf['quick_exp'] else 100000]
+  })
 
-params.append({'text': "max_steps = {}\n",
-               'values': [20000 if tune_conf['quick_exp'] else 100000]
-})
+  params.append({'text': "EvalConfig.niter_runtime_eval = {}\n",
+                'values': [2000 if tune_conf['quick_exp'] else 25000]
+  })
 
-params.append({'text': "EvalConfig.niter_runtime_eval = {}\n",
-               'values': [2000 if tune_conf['quick_exp'] else 25000]
-})
+else:
+    params.append({'text': "EvalConfig.niter_runtime_eval = {}\n",
+                'values': [25000]
+  })
+
 
 ids = []
 for i in range(len(params)):
