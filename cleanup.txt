@@ -1,0 +1,3 @@
+find */renders-runtime/*/runtime_eval/model_out/ -name \*.npy -type f -delete
+
+find . -name \checkpoint_* -type f -delete
