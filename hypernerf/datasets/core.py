@@ -262,6 +262,9 @@ class DataSource(abc.ABC):
   def load_rgb(self, item_id):
     raise NotImplementedError()
 
+  def load_static_rgb(self, item_id):
+    raise NotImplementedError()
+
   def load_depth(self, item_id):
     raise NotImplementedError()
 
@@ -653,6 +656,9 @@ class DataSource(abc.ABC):
         'rgb': rgb,
         'metadata': {},
     }
+
+    if self.static_rgb_dir.exists():
+      data['static_rgb'] = self.load_static_rgb(item_id)
 
     if self.use_appearance_id:
       data['metadata']['appearance'] = np.atleast_1d(

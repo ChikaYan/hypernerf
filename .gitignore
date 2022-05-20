@@ -85,3 +85,5 @@ log_test/
 configs/decompose/tune/
 
 *slurm*.sh
+
+log-others/

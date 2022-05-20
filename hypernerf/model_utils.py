@@ -166,6 +166,7 @@ def volumetric_rendering_addition(rgb_d,
                                   z_vals,
                                   dirs,
                                   use_white_background,
+                                  use_green_background=False,
                                   sample_at_infinity=True,
                                   eps=1e-10):
   """
@@ -232,6 +233,8 @@ def volumetric_rendering_addition(rgb_d,
   acc = weights.sum(axis=-1)
   if use_white_background:
     rgb = rgb + (1. - acc[..., None])
+  elif use_green_background:
+    rgb = rgb + (1. - acc[..., None]) * jnp.array([0,1,0])
 
   if sample_at_infinity:
     acc = (weights_d + weights_s)[..., :-1].sum(axis=-1)

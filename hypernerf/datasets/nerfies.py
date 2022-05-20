@@ -112,6 +112,7 @@ class NerfiesDataSource(core.DataSource):
     self.shuffle_pixels = shuffle_pixels
 
     self.rgb_dir = gpath.GPath(data_dir, 'rgb', f'{image_scale}x')
+    self.static_rgb_dir = gpath.GPath(data_dir, 'static-rgb', f'{image_scale}x')
     self.depth_dir = gpath.GPath(data_dir, 'depth', f'{image_scale}x')
     if camera_type not in ['json']:
       raise ValueError('The camera type needs to be json.')
@@ -126,8 +127,10 @@ class NerfiesDataSource(core.DataSource):
     if load_ex_test is not None:
       # load extra tests with specified rgb images, camera poses and camera metadata
       self.rgb_dir = gpath.GPath(data_dir, load_ex_test, 'rgb', f'{image_scale}x')
+      self.static_rgb_dir = gpath.GPath(data_dir, load_ex_test, 'static-rgb', f'{image_scale}x')
       self.camera_dir = gpath.GPath(data_dir, load_ex_test, 'camera-gt' if use_gt_camera else 'camera')
       metadata_path = self.data_dir / load_ex_test / 'metadata.json'
+      self.mask_dir = gpath.GPath(data_dir, load_ex_test, 'mask', f'{image_scale}x')
 
     if metadata_path.exists():
       with metadata_path.open('r') as f:
@@ -156,6 +159,9 @@ class NerfiesDataSource(core.DataSource):
 
   def load_rgb(self, item_id: str) -> np.ndarray:
     return _load_image(self.rgb_dir / f'{item_id}.png')
+
+  def load_static_rgb(self, item_id: str) -> np.ndarray:
+    return _load_image(self.static_rgb_dir / f'{item_id}.png')
 
   def load_mask(self, item_id: str) -> np.ndarray:
     mask = _load_image(self.mask_dir / f'{item_id}.png')

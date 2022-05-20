@@ -66,6 +66,7 @@ FLAGS = flags.FLAGS
 config.update('jax_log_compiles', True)
 
 KEEP_GIF_ONLY = True
+LOSS_FN_ALEX = LPIPS(net='alex', version=0.1)
 
 def compute_multiscale_ssim(image1: jnp.ndarray, image2: jnp.ndarray):
   """Compute the multiscale SSIM metric."""
@@ -90,10 +91,9 @@ def compute_ssim(image1: jnp.ndarray, image2: jnp.ndarray, pad=0,
 
 def compute_lpips(image1: jnp.ndarray, image2: jnp.ndarray):
   """Compute the LPIPS metric."""
+  global LOSS_FN_ALEX
   image1 = np.array(image1)
   image2 = np.array(image2)
-
-  loss_fn_alex = LPIPS(net='alex', version=0.1)
 
   # normalize to [-1,1]
   image1 = (image1 - .5) * 2
@@ -102,7 +102,7 @@ def compute_lpips(image1: jnp.ndarray, image2: jnp.ndarray):
   image1 = np.transpose(image1[None,...],[0,3,1,2])
   image2 = np.transpose(image2[None,...],[0,3,1,2])
   
-  lpip = loss_fn_alex(torch.from_numpy(image1), torch.from_numpy(image2))
+  lpip = LOSS_FN_ALEX(torch.from_numpy(image1), torch.from_numpy(image2))
 
   return np.asarray(lpip.detach().numpy())
 
@@ -147,11 +147,11 @@ def compute_stats(batch, model_out):
     stats['mse'] = mse
     stats['psnr'] = psnr
     stats['ssim'] = ssim
-    stats['lpip'] = lpip
+    stats['lpips'] = lpip
     stats['ms_ssim'] = ms_ssim
 
     logging.info(
-        '\tMetrics: mse=%.04f, psnr=%.02f, ssim=%.02f, ms_ssim=%.02f, lpip=%.02f',
+        '\tMetrics: mse=%.04f, psnr=%.02f, ssim=%.02f, ms_ssim=%.02f, lpips=%.02f',
         mse, psnr, ssim, ms_ssim, lpip)
 
   if 'mask' in batch and 'extra_rgb_mask' in model_out:
@@ -162,6 +162,18 @@ def compute_stats(batch, model_out):
     stats['jac_i'] = jac
     f1 = compute_f1(mask_pred, mask_gt)
     stats['f1'] = f1
+
+  if 'static_rgb' in batch and 'extra_rgb_static' in model_out:
+    # calculate static reconstruct quality
+    rgb = model_out['extra_rgb_static'][..., :3]
+    rgb_target = batch['static_rgb'][..., :3]
+    mse = ((rgb - rgb_target)**2).mean()
+    stats['static_mse'] = mse
+    stats['static_psnr'] = utils.compute_psnr(mse)
+    stats['static_ssim'] = compute_ssim(rgb_target, rgb)
+    stats['static_lpips'] = compute_lpips(rgb_target, rgb)
+    stats['static_ms_ssim'] = compute_multiscale_ssim(rgb_target, rgb)
+
 
   stats = jax.tree_map(np.array, stats)
 

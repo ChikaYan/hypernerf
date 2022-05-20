@@ -280,8 +280,8 @@ class NerfModel(nn.Module):
 
     if self.use_nerf_embed:
       self.nerf_embed = self.nerf_embed_cls(num_embeddings=self.num_nerf_embeds)
-    if self.use_warp:
-      self.warp_embed = self.warp_embed_cls(num_embeddings=self.num_warp_embeds)
+    # if self.use_warp:
+    self.warp_embed = self.warp_embed_cls(num_embeddings=self.num_warp_embeds)
 
     if self.hyper_slice_method == 'axis_aligned_plane':
       self.hyper_embed = self.hyper_embed_cls(
@@ -2281,6 +2281,8 @@ class DecomposeNerfModel(NerfModel):
         ex_rgb_s, ex_sigma_s = rgb_s, sigma_s
         ex_blendw = blendw
         ex_shadow_r = shadow_r
+        ex_use_white_background = self.use_white_background
+        ex_use_green_background = False
         if render_mode == 'static':
           ex_rgb_d = jnp.zeros_like(ex_rgb_d)
           ex_sigma_d = jnp.zeros_like(ex_sigma_d)
@@ -2288,6 +2290,11 @@ class DecomposeNerfModel(NerfModel):
         elif render_mode == 'dynamic':
           ex_rgb_s = jnp.zeros_like(ex_rgb_s)
           ex_sigma_s = jnp.zeros_like(ex_sigma_s)
+          ex_use_white_background = True
+        elif render_mode == 'dynamic_green':
+          ex_rgb_s = jnp.zeros_like(ex_rgb_s)
+          ex_sigma_s = jnp.zeros_like(ex_sigma_s)
+          ex_use_green_background = True
         elif render_mode == 'blendw':
           out[f'extra_rgb_{render_mode}'] =  out['rgb_blendw']
           continue
@@ -2365,7 +2372,8 @@ class DecomposeNerfModel(NerfModel):
           ex_shadow_r,
           z_vals,
           directions,
-          use_white_background=self.use_white_background,
+          use_white_background=ex_use_white_background,
+          use_green_background=ex_use_green_background,
           sample_at_infinity=use_sample_at_infinity)
         out[f'extra_rgb_{render_mode}'] = extra_render['rgb']
 

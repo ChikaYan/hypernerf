@@ -416,8 +416,8 @@ def compute_shadow_r_loss(rets, clip_threshold=1e-19, threshold=0.):
   # loss = entropy + jnp.log(2) # make sure positive loss
 
   mask = jnp.where(threshold < shadow_r, 1., 0.) 
-  loss = (((shadow_r + shadow_r**2) * mask)).mean()
-  # loss = ((shadow_r * mask)).mean()
+  # loss = (((shadow_r + shadow_r**2) * mask)).mean()
+  loss = (((shadow_r**2) * mask)).mean()
 
   return loss
 
